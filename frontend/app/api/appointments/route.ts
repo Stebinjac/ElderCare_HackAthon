@@ -9,6 +9,9 @@ export async function GET(request: NextRequest) {
     }
 
     try {
+        const { searchParams } = new URL(request.url);
+        const patientId = searchParams.get('patientId');
+
         let query = supabase
             .from('appointments')
             .select(`
@@ -17,17 +20,19 @@ export async function GET(request: NextRequest) {
                 doctor:doctor_id (name, email)
             `);
 
-        if ((user as any).role === 'doctor') {
+        if (patientId && (user as any).role === 'doctor') {
+            // Doctor fetching a specific patient's appointments (for detail page)
+            query = query.eq('patient_id', patientId).eq('doctor_id', user.userId);
+        } else if ((user as any).role === 'doctor') {
             query = query.eq('doctor_id', user.userId);
         } else {
             query = query.eq('patient_id', user.userId);
         }
 
-        const { data, error } = await query.order('date', { ascending: true }).order('time', { ascending: true });
+        const { data, error } = await query.order('date', { ascending: false }).order('time', { ascending: true });
 
         if (error) throw error;
 
-        // Flatten patient/doctor info
         const appointments = data?.map(a => ({
             ...a,
             patientName: (a.patient as any)?.name,
