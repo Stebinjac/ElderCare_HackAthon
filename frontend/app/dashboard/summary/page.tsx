@@ -16,24 +16,14 @@ export default function HealthSummaryPage() {
     useEffect(() => {
         const fetchSummaryData = async () => {
             try {
-                const [summaryRes, doctorsRes] = await Promise.all([
-                    fetch('/api/dashboard/summary'),
-                    fetch('/api/patient/doctors')
-                ]);
-
+                const summaryRes = await fetch('/api/dashboard/summary');
                 const summaryData = await summaryRes.json();
-                const doctorsData = await doctorsRes.json();
 
                 if (summaryRes.ok) {
                     setMetrics(summaryData.metrics);
                     setInsight(summaryData.insight);
                     setBloodDetails(summaryData.recentBloodDetails);
                     setReportDate(summaryData.latestReportDate);
-                }
-
-                if (doctorsRes.ok) {
-                    const firstDoctor = doctorsData.doctors?.find((d: any) => d.requestStatus === 'accepted');
-                    setAssignedDoctor(firstDoctor || null);
                 }
             } catch (error) {
                 console.error('Failed to fetch summary data:', error);
@@ -58,17 +48,6 @@ export default function HealthSummaryPage() {
                     <h2 className="text-4xl font-black text-foreground tracking-tight">Health Summary</h2>
                     <p className="text-muted-foreground font-medium italic">Comprehensive snapshot of your medical health</p>
                 </div>
-                {assignedDoctor && (
-                    <Card className="px-6 py-4 border-primary/20 bg-primary/5 flex items-center gap-4 rounded-2xl shadow-sm animate-in slide-in-from-right-4">
-                        <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                            <Users className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-xs font-black uppercase text-primary/70 tracking-widest">{assignedDoctor.speciality || 'General Practitioner'}</p>
-                            <p className="text-lg font-black text-foreground">{assignedDoctor.name}</p>
-                        </div>
-                    </Card>
-                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">

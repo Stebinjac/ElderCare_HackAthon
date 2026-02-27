@@ -81,12 +81,6 @@ async def book_appointment(
     if doctor_name:
         doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
 
-    # Fallback: patient's assigned doctor
-    if not doc_res or not doc_res.data:
-        rel_res = supabase.table("doctor_patient_relations").select("doctor_id").eq("patient_id", patient_id).eq("status", "accepted").limit(1).execute()
-        if rel_res.data:
-            doc_res = supabase.table("users").select("id, name, speciality").eq("id", rel_res.data[0]["doctor_id"]).execute()
-
     # Last resort: any doctor
     if not doc_res or not doc_res.data:
         doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").limit(1).execute()

@@ -54,7 +54,6 @@ export default function DoctorLayout({
         { icon: Activity, label: 'Doctor Hub', href: '/doctor/dashboard' },
         { icon: Users, label: 'My Patients', href: '/doctor/patients' },
         { icon: Calendar, label: 'Appointments', href: '/doctor/appointments' },
-        { icon: ClipboardList, label: 'Requests', href: '/doctor/requests' },
         { icon: Settings, label: 'Account Settings', href: '/doctor/settings' },
     ];
 

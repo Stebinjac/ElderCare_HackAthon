@@ -10,7 +10,6 @@ export default function PatientDoctorsPage() {
     const [doctors, setDoctors] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [requestingId, setRequestingId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchDoctors = async () => {
@@ -30,27 +29,6 @@ export default function PatientDoctorsPage() {
         fetchDoctors();
     }, []);
 
-    const handleRequest = async (doctorId: string) => {
-        setRequestingId(doctorId);
-        try {
-            const response = await fetch('/api/patient/doctors', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ doctorId }),
-            });
-
-            if (response.ok) {
-                setDoctors(doctors.map(d =>
-                    d.id === doctorId ? { ...d, requestStatus: 'pending' } : d
-                ));
-            }
-        } catch (error) {
-            console.error('Failed to send request:', error);
-        } finally {
-            setRequestingId(null);
-        }
-    };
-
     const filteredDoctors = doctors.filter(d =>
         d.name.toLowerCase().includes(search.toLowerCase()) ||
         d.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -60,8 +38,8 @@ export default function PatientDoctorsPage() {
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div>
-                <h2 className="text-3xl font-black text-foreground tracking-tight">Find a Doctor</h2>
-                <p className="text-muted-foreground font-medium italic">Request a healthcare professional to manage your health reports and prescriptions</p>
+                <h2 className="text-3xl font-black text-foreground tracking-tight">Available Doctors</h2>
+                <p className="text-muted-foreground font-medium italic">General and specialized healthcare professionals available on the platform</p>
             </div>
 
             <div className="flex gap-4 max-w-2xl">
@@ -84,11 +62,6 @@ export default function PatientDoctorsPage() {
                 ) : filteredDoctors.length > 0 ? (
                     filteredDoctors.map((doctor) => (
                         <Card key={doctor.id} className="p-8 border-border/50 bg-card/50 backdrop-blur hover:shadow-2xl transition-all rounded-[32px] group flex flex-col justify-between overflow-hidden relative">
-                            <div className={`absolute top-0 right-0 p-4 transition-transform group-hover:scale-110 ${doctor.requestStatus === 'accepted' ? 'text-emerald-500' : 'text-primary/20'
-                                }`}>
-                                <CheckCircle2 className="w-8 h-8" />
-                            </div>
-
                             <div className="space-y-4">
                                 <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary border border-primary/20">
                                     <Users className="w-8 h-8" />
@@ -107,25 +80,9 @@ export default function PatientDoctorsPage() {
                             </div>
 
                             <div className="pt-8">
-                                {doctor.requestStatus === 'accepted' ? (
-                                    <div className="flex items-center gap-2 text-emerald-500 font-black uppercase text-sm bg-emerald-500/10 p-4 rounded-xl justify-center">
-                                        <CheckCircle2 className="w-5 h-5" />
-                                        Connected Specialist
-                                    </div>
-                                ) : doctor.requestStatus === 'pending' ? (
-                                    <div className="flex items-center gap-2 text-primary/60 font-black uppercase text-sm bg-primary/5 p-4 rounded-xl justify-center animate-pulse">
-                                        Request Pending
-                                    </div>
-                                ) : (
-                                    <Button
-                                        onClick={() => handleRequest(doctor.id)}
-                                        disabled={requestingId === doctor.id}
-                                        className="w-full h-12 bg-linear-to-r from-primary to-accent font-black rounded-xl shadow-lg hover:-translate-y-1 transition-all gap-2"
-                                    >
-                                        {requestingId === doctor.id ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-4 h-4" />}
-                                        Request Connection
-                                    </Button>
-                                )}
+                                <div className="flex items-center gap-2 text-primary/60 font-black uppercase text-sm bg-primary/5 p-4 rounded-xl justify-center">
+                                    Verified Professional
+                                </div>
                             </div>
                         </Card>
                     ))

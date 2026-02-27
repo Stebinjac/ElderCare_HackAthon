@@ -20,21 +20,15 @@ export default function DoctorDashboardPage() {
     useEffect(() => {
         const fetchDashboardData = async () => {
             try {
-                const [patientsRes, requestsRes] = await Promise.all([
-                    fetch('/api/doctor/patients'),
-                    fetch('/api/doctor/requests')
-                ]);
+                const response = await fetch('/api/doctor/patients');
+                const data = await response.json();
 
-                const patientsData = await patientsRes.json();
-                const requestsData = await requestsRes.json();
-
-                if (patientsRes.ok && requestsRes.ok) {
-                    const patients = patientsData.patients || [];
-                    const requests = requestsData.requests || [];
+                if (response.ok) {
+                    const patients = data.patients || [];
 
                     setStats({
                         totalPatients: patients.length,
-                        pendingRequests: requests.length,
+                        pendingRequests: 0,
                         criticalCases: patients.filter((p: any) => p.status === 'Critical').length,
                         checksToday: patients.filter((p: any) => p.lastReport && (p.lastReport.includes('Today') || p.lastReport.includes('hour'))).length
                     });
@@ -58,24 +52,15 @@ export default function DoctorDashboardPage() {
                 <div className="space-y-4 relative">
                     <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Good Afternoon, Doctor.</h2>
                     <p className="text-xl md:text-2xl opacity-90 max-w-2xl font-medium">
-                        You have <span className="font-black underline decoration-4 underline-offset-8 decoration-white/30">{stats.pendingRequests} new requests</span> from patients waiting for your approval.
+                        Welcome back to your clinical dashboard. Monitoring <span className="font-black underline decoration-4 underline-offset-8 decoration-white/30">{stats.totalPatients} active patients</span> today.
                     </p>
-                    <div className="pt-4">
-                        <Link href="/doctor/requests">
-                            <Button className="bg-white text-primary hover:bg-secondary h-14 px-8 text-lg font-bold rounded-2xl shadow-xl hover:-translate-y-1 transition-all gap-2">
-                                Review Requests
-                                <ArrowRight className="w-5 h-5" />
-                            </Button>
-                        </Link>
-                    </div>
                 </div>
             </Card>
 
             {/* Quick Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {[
                     { label: 'Total Patients', value: stats.totalPatients, icon: Users, color: 'text-primary' },
-                    { label: 'Pending Requests', value: stats.pendingRequests, icon: ClipboardList, color: 'text-orange-500' },
                     { label: 'Critical Cases', value: stats.criticalCases, icon: AlertCircle, color: 'text-destructive' },
                     { label: 'Reviews Today', value: stats.checksToday, icon: CheckCircle2, color: 'text-emerald-500' },
                 ].map((stat, idx) => (

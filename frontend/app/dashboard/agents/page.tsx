@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope, Mic, MicOff } from 'lucide-react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -117,6 +119,7 @@ export default function AgentCarePage() {
     const [isRecording, setIsRecording] = useState(false);
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [voiceError, setVoiceError] = useState<string | null>(null);
+    const [userId, setUserId] = useState<string | null>(null);
     const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -129,14 +132,50 @@ export default function AgentCarePage() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Proactively fetch location on mount
+    // Fetch user and load history on mount
     useEffect(() => {
+        const initChat = async () => {
+            try {
+                const res = await fetch('/api/user/profile');
+                if (res.ok) {
+                    const data = await res.json();
+
+                    // Use email as unique ID for chat persistence
+                    setUserId(data.user.email);
+
+                    if (data.user.email) {
+                        const docRef = doc(db, 'chats', data.user.email);
+                        const docSnap = await getDoc(docRef);
+
+                        if (docSnap.exists()) {
+                            const chatData = docSnap.data();
+                            if (chatData.history && Array.isArray(chatData.history)) {
+                                setMessages(chatData.history);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load chat history:", err);
+            }
+        };
+
+        initChat();
+
+        // Proactively fetch location
         getCurrentLocation().then(loc => {
             if (loc) {
                 console.log("[AgentCare] Proactive location obtained:", loc);
                 setUserLocation(loc);
             }
         });
+
+        // Cleanup: Stop any lingering media streams
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+            }
+        };
     }, []);
 
     const getCurrentLocation = (): Promise<{ lat: number, lng: number } | null> => {
@@ -175,6 +214,16 @@ export default function AgentCarePage() {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+
+        // Save to Firebase (Single Document Array)
+        if (userId) {
+            setDoc(doc(db, 'chats', userId), {
+                history: arrayUnion({
+                    ...userMessage,
+                    timestamp: new Date().toISOString()
+                })
+            }, { merge: true }).catch((err: any) => console.error("Firebase store error:", err));
+        }
 
         try {
             const lowercaseMsg = msg.toLowerCase();
@@ -216,6 +265,16 @@ export default function AgentCarePage() {
                 actions: data.actions,
             };
             setMessages(prev => [...prev, assistantMessage]);
+
+            // Save to Firebase (Assistant response)
+            if (userId) {
+                setDoc(doc(db, 'chats', userId), {
+                    history: arrayUnion({
+                        ...assistantMessage,
+                        timestamp: new Date().toISOString()
+                    })
+                }, { merge: true }).catch((err: any) => console.error("Firebase store error assistant:", err));
+            }
         } catch (error) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
