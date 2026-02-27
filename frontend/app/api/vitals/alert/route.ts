@@ -35,13 +35,19 @@ export async function POST(request: Request) {
             return NextResponse.json({ success: false, error: 'No guardian phone set' });
         }
 
+        let destPhone = user.guardian_phone.trim();
+        // Support for Kerala/India (10 digits -> +91)
+        if (destPhone.length === 10 && /^\d+$/.test(destPhone)) {
+            destPhone = `+91${destPhone}`;
+        }
+
         // Send ACTUAL SMS using Twilio if credentials are set
         if (accountSid && authToken && twilioPhoneNumber) {
             try {
                 const response = await client.messages.create({
                     body: `🚨 ELDERCARE ALERT: ${user.name}'s ${type} measurement of ${value} is critical. Message: ${message}`,
                     from: twilioPhoneNumber,
-                    to: user.guardian_phone
+                    to: destPhone
                 });
                 console.log(`Actual SMS sent via Twilio! SID: ${response.sid}`);
                 return NextResponse.json({ success: true, actualSent: true });

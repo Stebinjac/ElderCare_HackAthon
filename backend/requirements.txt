@@ -5,3 +5,5 @@ supabase
 google-generativeai
 pydantic
 asyncio
+twilio
+httpx

@@ -1,7 +1,3 @@
-"""
-AgentCare Tool Functions
-Executable actions that the AI agent can invoke via function-calling.
-"""
 import os
 import httpx
 from typing import Dict, Any, Optional
@@ -264,8 +260,16 @@ async def send_emergency_alert(supabase: Client, patient_id: str, message: Optio
     user_res = supabase.table("users").select("name, guardian_phone").eq("id", patient_id).execute()
     user = user_res.data[0] if user_res.data else {}
 
-    if not user.get("guardian_phone"):
+    dest_phone = user.get("guardian_phone", "").strip()
+    if not dest_phone:
         return {"success": False, "error": "No guardian phone number on file."}
+    
+    # Simple formatting for Kerala/India (10 digits -> +91)
+    if len(dest_phone) == 10 and dest_phone.isdigit():
+        dest_phone = f"+91{dest_phone}"
+    elif not dest_phone.startswith("+"):
+        # If it doesn't start with +, Twilio will likely fail anyway, but we can try to be smart
+        pass
 
     alert_message = message or f"Emergency alert for {user.get('name', 'your loved one')}. Please check on them immediately."
 
@@ -274,18 +278,24 @@ async def send_emergency_alert(supabase: Client, patient_id: str, message: Optio
         sid = os.environ.get("TWILIO_ACCOUNT_SID")
         token = os.environ.get("TWILIO_AUTH_TOKEN")
         from_phone = os.environ.get("TWILIO_PHONE_NUMBER")
+        
         if sid and token and from_phone:
             tw_client = TwilioClient(sid, token)
             sms = tw_client.messages.create(
                 body=f"ELDERCARE ALERT: {alert_message}",
                 from_=from_phone,
-                to=user["guardian_phone"],
+                to=dest_phone,
             )
-            return {"success": True, "sent_to": user["guardian_phone"], "twilio_sid": sms.sid}
-    except Exception:
-        pass
+            print(f"[AgentCare] SMS sent successfully via Twilio! SID: {sms.sid}")
+            return {"success": True, "sent_to": dest_phone, "twilio_sid": sms.sid}
+        else:
+            print("[AgentCare] Twilio credentials missing in .env. Falling back to simulation.")
+    except Exception as e:
+        error_detail = str(e)
+        print(f"[AgentCare] Twilio Error: {error_detail}")
+        return {"success": False, "error": f"Twilio failed: {error_detail}", "sent_to": dest_phone}
 
-    return {"success": True, "sent_to": user["guardian_phone"], "simulated": True, "message": alert_message}
+    return {"success": True, "sent_to": dest_phone, "simulated": True, "message": alert_message}
 
 
 async def get_medications(supabase: Client, patient_id: str) -> Dict[str, Any]:
