@@ -32,8 +32,8 @@ export default function HealthSummaryPage() {
                 }
 
                 if (doctorsRes.ok) {
-                    const primary = doctorsData.doctors?.find((d: any) => d.requestStatus === 'accepted');
-                    setAssignedDoctor(primary || null);
+                    const firstDoctor = doctorsData.doctors?.find((d: any) => d.requestStatus === 'accepted');
+                    setAssignedDoctor(firstDoctor || null);
                 }
             } catch (error) {
                 console.error('Failed to fetch summary data:', error);
@@ -64,7 +64,7 @@ export default function HealthSummaryPage() {
                             <Users className="w-6 h-6" />
                         </div>
                         <div>
-                            <p className="text-xs font-black uppercase text-primary/70 tracking-widest">Your Doctor</p>
+                            <p className="text-xs font-black uppercase text-primary/70 tracking-widest">{assignedDoctor.speciality || 'General Practitioner'}</p>
                             <p className="text-lg font-black text-foreground">{assignedDoctor.name}</p>
                         </div>
                     </Card>

@@ -56,25 +56,49 @@ async def book_appointment(
     supabase: Client,
     patient_id: str,
     doctor_name: Optional[str] = None,
+    specialty: Optional[str] = None,
     date: Optional[str] = None,
     time: Optional[str] = None,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Auto-book an appointment with a doctor. Finds the assigned doctor if not specified."""
+    """Auto-book an appointment with a doctor. Finds the assigned doctor or specialist if not specified."""
     # Find doctor
+    doc_res = None
     if doctor_name:
-        doc_res = supabase.table("users").select("id, name").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
-    else:
+        doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
+    
+    if (not doc_res or not doc_res.data) and specialty:
+        # Normalize specialty for better matching
+        search_spec = specialty.strip().capitalize()
+        
+        # 1. Search for doctors matching EXACT specialty AND already connected to patient
+        rel_res = supabase.table("doctor_patient_relations").select("doctor_id").eq("patient_id", patient_id).eq("status", "accepted").execute()
+        connected_ids = [r["doctor_id"] for r in rel_res.data] if rel_res.data else []
+        
+        if connected_ids:
+            doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").eq("speciality", search_spec).in_("id", connected_ids).limit(1).execute()
+            
+        # 2. If no connected EXACT specialist, search for any doctor with EXACT specialty
+        if not doc_res or not doc_res.data:
+            doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").eq("speciality", search_spec).limit(1).execute()
+            
+        # 3. If still no exact match, try a partial match (e.g. "Ortho" -> "Orthopedics")
+        if not doc_res or not doc_res.data:
+            doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("speciality", f"%{specialty}%").limit(1).execute()
+
+    # Fallback to general doctor ONLY if NO specialty and NO doctor_name were requested
+    if (not doc_res or not doc_res.data) and not specialty and not doctor_name:
         # Find any doctor linked to this patient
         rel_res = supabase.table("doctor_patient_relations").select("doctor_id").eq("patient_id", patient_id).eq("status", "accepted").limit(1).execute()
         if rel_res.data:
-            doc_res = supabase.table("users").select("id, name").eq("id", rel_res.data[0]["doctor_id"]).execute()
+            doc_res = supabase.table("users").select("id, name, speciality").eq("id", rel_res.data[0]["doctor_id"]).execute()
         else:
-            # Fallback: find any available doctor
-            doc_res = supabase.table("users").select("id, name").eq("role", "doctor").limit(1).execute()
+            # Absolute last resort: find a general practitioner
+            doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("speciality", "%General%").limit(1).execute()
 
-    if not doc_res.data:
-        return {"success": False, "error": "No doctors found in the system."}
+    if not doc_res or not doc_res.data:
+        fail_msg = f"I couldn't find a {specialty} specialist. Would you like to see a General Practitioner instead?" if specialty else "I couldn't find any available doctors at the moment."
+        return {"success": False, "error": fail_msg}
 
     doctor = doc_res.data[0]
 
