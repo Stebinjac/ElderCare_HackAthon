@@ -4,9 +4,9 @@ import bcrypt from 'bcryptjs';
 
 export async function POST(request: Request) {
     try {
-        const { name, email, password } = await request.json();
+        const { name, email, password, role, speciality } = await request.json();
 
-        if (!name || !email || !password) {
+        if (!name || !email || !password || !role) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
         }
 
@@ -24,14 +24,11 @@ export async function POST(request: Request) {
         // Hash password
         const passwordHash = await bcrypt.hash(password, 10);
 
-        // Determine role
-        const role = email.toLowerCase().endsWith('@doctor.com') ? 'doctor' : 'patient';
-
         // Create user
         const { error: insertError } = await supabase
             .from('users')
             .insert([
-                { name, email, password_hash: passwordHash, role }
+                { name, email, password_hash: passwordHash, role, speciality: role === 'doctor' ? speciality : null }
             ]);
 
         if (insertError) {

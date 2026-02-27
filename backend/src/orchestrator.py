@@ -46,6 +46,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "doctor_name": {"type": "string", "description": "Name of the doctor (optional, auto-selects if not given)"},
+                    "specialty": {"type": "string", "description": "Medical specialty needed. Allowed: 'Cardiology' (heart), 'Orthopedics' (bones/joints), 'Geriatrics' (elders), 'Neurology' (brain/nerves), 'Psychiatry' (mental health), 'General Practice' (general issues)."},
                     "date": {"type": "string", "description": "Appointment date in YYYY-MM-DD format (optional, defaults to tomorrow)"},
                     "time": {"type": "string", "description": "Appointment time in HH:MM format (optional, auto-selects first available)"},
                     "reason": {"type": "string", "description": "Reason for the appointment"},
@@ -62,7 +63,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "City name to search near (e.g. 'Mumbai', 'New York')"},
+                    "city": {"type": "string", "description": "City name to search near (e.g. 'Kochi','Mumbai', 'New York',)"},
                 },
                 "required": [],
             },
@@ -96,18 +97,27 @@ SYSTEM_PROMPT = """You are AgentCare, an AI health assistant for elderly patient
 
 Your capabilities:
 - Fetch and explain health summaries (vitals, medications)
-- Book appointments with doctors automatically
+- Book appointments with specific doctors or specialists (e.g., "Find a cardiologist")
 - Find nearest hospitals using live map data
 - Send emergency alerts to guardians via SMS
 - List upcoming appointments
 
 Rules:
-1. ALWAYS use the available tools to take action. Do NOT just describe what you would do — actually do it.
-2. When the user asks to book an appointment, call the book_appointment tool immediately.
-3. When the user mentions an emergency or urgent situation, call find_nearest_hospital AND send_emergency_alert.
-4. Be warm, concise, and reassuring. The user may be elderly.
-5. After executing a tool, explain the result clearly in simple language.
-6. If you need more info (like a city name for hospital search), ask the user.
+1. BE PROACTIVE: If the user mentions a problem, call the tool IMMEDIATELY. Do NOT ask "Can I book?" or "At what time?". Just do it using logical defaults.
+2. LOGICAL DEFAULTS: If date/time is not given, ALWAYS assume:
+   - Date: Tomorrow (or next available weekday)
+   - Time: 10:00 AM (or first available morning slot)
+   - Doctor: Search by specialty based on symptoms.
+3. SYMPTOM-TO-SPECIALTY MAPPING:
+   - "Heart", "Chest Pain", "Palpitations", "BP" -> Cardiology
+   - "Bones", "Fracture", "Joints", "Back pain", "Spine" -> Orthopedics
+   - "Headache", "Memory", "Nerves", "Stroke", "Dizziness" -> Neurology
+   - "Old age", "Weakness", "Falling", "Geriatric" -> Geriatrics
+   - "Anxiety", "Sadness", "Depression", "Sleep issues", "Mental" -> Psychiatry
+   - "Fever", "Cough", "General checkup", "Infection" -> General Practice
+4. NO BACK-QUESTIONING: Do not ask "at what time" or "which doctor". Pick the best specialist and the first available slot. Report the confirmation to the user.
+5. EMERGENCY: If it sounds life-threatening, call `find_nearest_hospital` AND `send_emergency_alert` FIRST, then report.
+6. CLARITY: After booking, say: "I've booked you a specialist for [Issue]. Doctor [Name] will see you tomorrow at [Time]."
 """
 
 
@@ -130,6 +140,7 @@ class AgentOrchestrator:
             return await book_appointment(
                 self.supabase, patient_id,
                 doctor_name=args.get("doctor_name"),
+                specialty=args.get("specialty"),
                 date=args.get("date"),
                 time=args.get("time"),
                 reason=args.get("reason"),
