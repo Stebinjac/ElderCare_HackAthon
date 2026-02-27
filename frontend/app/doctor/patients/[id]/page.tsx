@@ -24,6 +24,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
     // Form state for new prescription
     const [medication, setMedication] = useState('');
     const [dosage, setDosage] = useState('');
+    const [prescribedDays, setPrescribedDays] = useState(30);
     const [instructions, setInstructions] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -71,6 +72,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                     patientId: id,
                     medication,
                     dosage,
+                    prescribedDays,
                     instructions
                 }),
             });
@@ -87,6 +89,7 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                 setShowPrescriptionModal(false);
                 setMedication('');
                 setDosage('');
+                setPrescribedDays(30);
                 setInstructions('');
             }
         } catch (error) {
@@ -288,6 +291,18 @@ export default function PatientDetailPage({ params }: { params: Promise<{ id: st
                                     onChange={(e) => setDosage(e.target.value)}
                                     required
                                 />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-sm font-black uppercase tracking-widest text-muted-foreground px-2">No. of Days</label>
+                                <select
+                                    className="w-full h-14 px-4 rounded-2xl border border-border/50 bg-secondary/20 text-lg font-bold appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                    value={prescribedDays}
+                                    onChange={(e) => setPrescribedDays(parseInt(e.target.value))}
+                                >
+                                    {[2, 7, 10, 14, 15, 21, 30, 45, 60, 90].map(d => (
+                                        <option key={d} value={d}>{d} days</option>
+                                    ))}
+                                </select>
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-black uppercase tracking-widest text-muted-foreground px-2">Special Instructions</label>

@@ -301,3 +301,5 @@ async def send_emergency_alert(supabase: Client, patient_id: str, message: Optio
 async def get_medications(supabase: Client, patient_id: str) -> Dict[str, Any]:
     res = supabase.table("medications").select("*").eq("patient_id", patient_id).execute()
     return {"medications": res.data or [], "count": len(res.data or [])}
+
+
