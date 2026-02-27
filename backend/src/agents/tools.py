@@ -28,20 +28,55 @@ async def get_health_summary(supabase: Client, patient_id: str) -> Dict[str, Any
     }
 
 
-async def get_available_doctors(supabase: Client) -> Dict[str, Any]:
-    """Fetch all available doctors with their names and specialities."""
-    res = supabase.table("users").select("id, name, speciality, email").eq("role", "doctor").execute()
+async def get_available_doctors(supabase: Client, user_lat: Optional[float] = None, user_lng: Optional[float] = None) -> Dict[str, Any]:
+    """Fetch available doctors at hospitals near the patient."""
+    
+    # 1. First, find hospitals near the user
+    nearby_hospital_names = []
+    if user_lat is not None and user_lng is not None:
+        hospital_res = await find_nearest_hospital(latitude=user_lat, longitude=user_lng)
+        nearby_hospital_names = [h["name"].lower() for h in hospital_res.get("hospitals", [])]
+        print(f"[AgentCare] Nearby hospitals found: {nearby_hospital_names}")
+
+    # 2. Fetch doctors
+    res = supabase.table("users").select("id, name, speciality, email, hospital_name").eq("role", "doctor").execute()
     doctors = res.data or []
-    return {
-        "doctors": [
-            {
+    
+    filtered_doctors = []
+    for d in doctors:
+        doc_hospital = (d.get("hospital_name") or "").lower()
+        
+        # If no proximity data available, include all (fallback)
+        if not nearby_hospital_names:
+            filtered_doctors.append({
                 "name": d["name"],
                 "speciality": d.get("speciality") or "General Physician",
                 "email": d.get("email"),
-            }
-            for d in doctors
-        ],
-        "total": len(doctors),
+                "hospital": d.get("hospital_name") or "Clinic",
+                "is_near": False
+            })
+            continue
+
+        # Match doctor hospital against nearby hospitals
+        is_near = any(h_name in doc_hospital or doc_hospital in h_name for h_name in nearby_hospital_names)
+        
+        if is_near:
+            filtered_doctors.append({
+                "name": d["name"],
+                "speciality": d.get("speciality") or "General Physician",
+                "email": d.get("email"),
+                "hospital": d.get("hospital_name") or "Clinic",
+                "is_near": True
+            })
+
+    # If we have nearby results, only show those. Otherwise show all.
+    near_matches = [d for d in filtered_doctors if d.get("is_near")]
+    results = near_matches if near_matches else filtered_doctors
+
+    return {
+        "doctors": results,
+        "total": len(results),
+        "proximity_active": bool(near_matches)
     }
 
 
@@ -79,11 +114,11 @@ async def book_appointment(
 
     # Find doctor by name
     if doctor_name:
-        doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
+        doc_res = supabase.table("users").select("id, name, speciality, hospital_name").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
 
     # Last resort: any doctor
     if not doc_res or not doc_res.data:
-        doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").limit(1).execute()
+        doc_res = supabase.table("users").select("id, name, speciality, hospital_name").eq("role", "doctor").limit(1).execute()
 
     if not doc_res or not doc_res.data:
         return {"success": False, "error": "No doctors found in the system."}
@@ -119,6 +154,7 @@ async def book_appointment(
             "success": True,
             "doctor_name": doctor["name"],
             "doctor_speciality": doctor.get("speciality") or "General Physician",
+            "hospital_name": doctor.get("hospital_name") or "Clinic",
             "date": date,
             "time": time,
             "reason": reason,

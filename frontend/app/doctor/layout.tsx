@@ -54,7 +54,7 @@ export default function DoctorLayout({
         { icon: Activity, label: 'Doctor Hub', href: '/doctor/dashboard' },
         { icon: Users, label: 'My Patients', href: '/doctor/patients' },
         { icon: Calendar, label: 'Appointments', href: '/doctor/appointments' },
-        { icon: Settings, label: 'Account Settings', href: '/doctor/settings' },
+        { icon: Settings, label: 'Settings', href: '/doctor/settings' },
     ];
 
     const getPageTitle = () => {

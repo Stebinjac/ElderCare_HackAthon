@@ -1,10 +1,9 @@
 "use client"
 import { useState, useRef, useEffect } from 'react';
-import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope, Mic, MicOff } from 'lucide-react';
+import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope, Mic, MicOff, Building2 } from 'lucide-react';
 import { db } from '@/lib/firebase';
-import { doc, getDoc, setDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, arrayUnion } from 'firebase/firestore';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -51,9 +50,20 @@ function ActionCard({ action }: { action: ActionItem }) {
             <div className="text-sm text-muted-foreground">
                 {action.tool === "book_appointment" && action.result.success && (
                     <div className="space-y-1">
-                        <p className="font-medium text-foreground">Dr. {action.result.doctor_name}</p>
-                        <p>{action.result.date} at {action.result.time}</p>
-                        <p className="text-xs">Status: {action.result.status}</p>
+                        <p className="font-bold text-lg text-foreground">Dr. {action.result.doctor_name}</p>
+                        <p className="font-medium text-primary flex items-center gap-1">
+                            <Building2 className="w-3 h-3" />
+                            {action.result.hospital_name}
+                        </p>
+                        <p className="text-sm text-muted-foreground flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {action.result.date} at {action.result.time}
+                        </p>
+                        <div className="pt-1">
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase">
+                                {action.result.status}
+                            </span>
+                        </div>
                     </div>
                 )}
                 {action.tool === "find_nearest_hospital" && action.result.hospitals && (
@@ -97,6 +107,9 @@ function ActionCard({ action }: { action: ActionItem }) {
                 )}
                 {action.tool === "get_medications" && (
                     <p>{action.result.count} medication(s) on file</p>
+                )}
+                {!TOOL_LABELS[action.tool] && action.tool !== "get_available_doctors" && (
+                    <p className="text-xs italic">Executed {action.tool}</p>
                 )}
             </div>
         </div>
@@ -409,9 +422,17 @@ export default function AgentCarePage() {
                                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                                 {msg.actions && msg.actions.length > 0 && (
                                     <div className="space-y-2 mt-2">
-                                        {msg.actions.map((a, j) => (
-                                            <ActionCard key={j} action={a} />
-                                        ))}
+                                        {(() => {
+                                            const bookingAction = msg.actions.find(a => a.tool === 'book_appointment');
+                                            if (bookingAction) {
+                                                return <ActionCard action={bookingAction} />;
+                                            }
+                                            return msg.actions
+                                                .filter(a => a.tool !== 'get_available_doctors')
+                                                .map((a, j) => (
+                                                    <ActionCard key={j} action={a} />
+                                                ));
+                                        })()}
                                     </div>
                                 )}
                             </div>
