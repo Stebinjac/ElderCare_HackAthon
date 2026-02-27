@@ -62,7 +62,13 @@ function ActionCard({ action }: { action: ActionItem }) {
                             <div key={i} className="flex items-start gap-2">
                                 <MapPin className="w-3 h-3 mt-1 text-primary shrink-0" />
                                 <div>
-                                    <p className="font-medium text-foreground">{h.name}</p>
+                                    <p className="font-medium text-foreground">
+                                        {h.name} {h.distance !== undefined && h.distance !== null && (
+                                            <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                                                · {h.distance} km away
+                                            </span>
+                                        )}
+                                    </p>
                                     {h.maps_link && (
                                         <a href={h.maps_link} target="_blank" rel="noopener noreferrer"
                                             className="text-xs text-primary hover:underline">
@@ -114,6 +120,7 @@ export default function AgentCarePage() {
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [voiceError, setVoiceError] = useState<string | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
+    const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -125,19 +132,15 @@ export default function AgentCarePage() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Fetch user and load history
+    // Fetch user and load history on mount
     useEffect(() => {
         const initChat = async () => {
             try {
                 const res = await fetch('/api/user/profile');
                 if (res.ok) {
                     const data = await res.json();
-                    const uid = data.user?.email; // Use email as unique ID if userId isn't directly exposed in profile payload
-                    // Attempt to get userId from headers/context if possible, but profile should have it.
-                    // Let's refine based on the profile route seen earlier.
 
-                    // Re-checking profile route... it returns { user: { name, email, guardian_phone, dob, phone } }
-                    // I will use email as the partition key for now as it's definitely unique.
+                    // Use email as unique ID for chat persistence
                     setUserId(data.user.email);
 
                     if (data.user.email) {
@@ -159,12 +162,49 @@ export default function AgentCarePage() {
 
         initChat();
 
+        // Proactively fetch location
+        getCurrentLocation().then(loc => {
+            if (loc) {
+                console.log("[AgentCare] Proactive location obtained:", loc);
+                setUserLocation(loc);
+            }
+        });
+
+        // Cleanup: Stop any lingering media streams
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
             }
         };
     }, []);
+
+    const getCurrentLocation = (): Promise<{ lat: number, lng: number } | null> => {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    console.log("[AgentCare] Location detected:", pos.coords.latitude, pos.coords.longitude);
+                    resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                },
+                (err) => {
+                    let errorMsg = "Unknown error";
+                    if (err.code === err.PERMISSION_DENIED) errorMsg = "Permission denied";
+                    else if (err.code === err.POSITION_UNAVAILABLE) errorMsg = "Position unavailable";
+                    else if (err.code === err.TIMEOUT) errorMsg = "Timeout";
+                    console.error("[AgentCare] Geolocation error:", errorMsg, err.message);
+                    resolve(null);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0
+                }
+            );
+        });
+    };
 
     const sendMessage = async (text?: string) => {
         const msg = text || input.trim();
@@ -186,12 +226,31 @@ export default function AgentCarePage() {
         }
 
         try {
+            const lowercaseMsg = msg.toLowerCase();
+            let location = userLocation;
+
+            // Broad intent detection for location-related queries
+            const locationIntentRegex = /\b(hospital|near|nearby|emergency|close|around|find|location|map|place|fetch|address)\b/i;
+
+            if (locationIntentRegex.test(lowercaseMsg)) {
+                console.log("[AgentCare] Location-related intent detected. Checking/Updating location...");
+                if (!location) {
+                    location = await getCurrentLocation();
+                    if (location) setUserLocation(location);
+                }
+            }
+
             const history = messages.map(m => ({ role: m.role, content: m.content }));
 
             const res = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: msg, history }),
+                body: JSON.stringify({
+                    message: msg,
+                    history,
+                    lat: location?.lat,
+                    lng: location?.lng
+                }),
             });
 
             if (!res.ok) {
@@ -373,7 +432,7 @@ export default function AgentCarePage() {
                         <div className="bg-card border border-border rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                <span>Thinking & executing actions...</span>
+                                <span>{input === "" ? "Detecting location & thinking..." : "Thinking & executing actions..."}</span>
                             </div>
                         </div>
                     </div>
@@ -407,6 +466,23 @@ export default function AgentCarePage() {
                     <span className="text-sm font-semibold text-primary">Transcribing your voice with Sarvam AI…</span>
                 </div>
             )}
+
+            {/* Location Status */}
+            <div className="mb-2 flex items-center gap-2 px-1">
+                <div className={`w-2 h-2 rounded-full ${userLocation ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-amber-500 animate-pulse'}`} />
+                <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {userLocation ? 'Location Active' : 'Fetching Location...'}
+                </span>
+                {!userLocation && (
+                    <button
+                        type="button"
+                        onClick={() => getCurrentLocation().then(loc => loc && setUserLocation(loc))}
+                        className="text-[10px] text-primary hover:underline ml-1"
+                    >
+                        Retry
+                    </button>
+                )}
+            </div>
 
             {/* Input Bar */}
             <div className="border-t border-border pt-4">

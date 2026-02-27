@@ -4,8 +4,9 @@ Uses Groq (LLaMA 3.3 70B) function-calling to interpret user messages and autono
 """
 import os
 import json
+import asyncio
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from groq import Groq
 from supabase import Client
@@ -54,11 +55,11 @@ BASE_TOOLS = [
         "type": "function",
         "function": {
             "name": "find_nearest_hospital",
-            "description": "Find the nearest hospitals using live map data.",
+            "description": "Find nearest hospitals. Provide a city name if known; otherwise, it will use the user's current location.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "City name to search near"},
+                    "city": {"type": "string", "description": "City name to search in (optional)."},
                 },
                 "required": [],
             },
@@ -127,7 +128,6 @@ BOOK_TOOL = {
 
 # ── Prompts ────────────────────────────────────────────────────────────────────
 
-# The main prompt given when the LLM is allowed to book
 SYSTEM_PROMPT = """You are AgentCare, a warm and caring AI health assistant for elderly patients.
 
 ## CORE RULE: THE 2-PHASE BOOKING PROTOCOL
@@ -151,6 +151,9 @@ Once the patient has answered your question and described their symptoms:
 ## EMERGENCY PROTOCOL
 If the patient mentions chest pain, stroke, breathlessness, or "emergency", skip all rules.
 IMMEDIATELY call `find_nearest_hospital` AND `send_emergency_alert`.
+
+## LOCATION HANDLING
+Use the user's live location (provided as metadata) automatically for searches. Coordinates are handled by the system; do not ask the user for them.
 
 ## TONE
 Be warm, reassuring, and keep your questions short for elderly patients.
@@ -198,7 +201,7 @@ def _needs_intake(message: str, history: List[Dict]) -> bool:
     if not ai_msgs:
         return True # They just walked up and said "book appointment with Dr X"
         
-    last_ai_msg = ai_msgs[-1]["content"]
+    last_ai_msg = ai_msgs[-1]["content"] or ""
     
     # If the AI asked a question, and the user is replying...
     if "?" in last_ai_msg:
@@ -220,7 +223,8 @@ class AgentOrchestrator:
         self.client = Groq(api_key=api_key)
         self.model = "llama-3.3-70b-versatile"
 
-    async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str) -> Dict[str, Any]:
+    async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
+        """Execute a tool function by name."""
         if tool_name == "get_health_summary":
             return await get_health_summary(self.supabase, patient_id)
         elif tool_name == "get_appointments":
@@ -231,14 +235,17 @@ class AgentOrchestrator:
             return await book_appointment(
                 self.supabase, patient_id,
                 doctor_name=args.get("doctor_name"),
-                specialty=args.get("specialty"),
                 date=args.get("date"),
                 time=args.get("time"),
                 reason=args.get("reason"),
                 patient_notes=args.get("patient_notes"),
             )
         elif tool_name == "find_nearest_hospital":
-            return await find_nearest_hospital(patient_city=args.get("city"))
+            return await find_nearest_hospital(
+                patient_city=args.get("city"),
+                latitude=lat or args.get("latitude"),
+                longitude=lng or args.get("longitude")
+            )
         elif tool_name == "send_emergency_alert":
             return await send_emergency_alert(self.supabase, patient_id, message=args.get("message"))
         elif tool_name == "get_medications":
@@ -246,7 +253,8 @@ class AgentOrchestrator:
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
-    async def chat(self, patient_id: str, message: str, history: List[Dict] = None) -> Dict[str, Any]:
+    async def chat(self, patient_id: str, message: str, history: List[Dict] = None, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
+        """Process a user chat message, execute any tool calls, and return the response."""
         actions_taken = []
         history = history or []
 
@@ -255,12 +263,9 @@ class AgentOrchestrator:
             tools = BASE_TOOLS + [BOOK_TOOL]
             system_prompt = SYSTEM_PROMPT
         elif _needs_intake(message, history):
-            # The user asked for a booking, but hasn't given symptoms yet.
-            # HIDE the booking tool completely.
             tools = BASE_TOOLS 
             system_prompt = INTAKE_PROMPT
         else:
-            # Enough context given (or not a booking request) — allow all tools
             tools = BASE_TOOLS + [BOOK_TOOL]
             system_prompt = SYSTEM_PROMPT
 
@@ -317,9 +322,14 @@ class AgentOrchestrator:
 
                 print(f"[AgentCare] Executing tool: {tool_name}({tool_args})")
 
-                result = await self._execute_tool(tool_name, tool_args, patient_id)
-                actions_taken.append({"tool": tool_name, "args": tool_args, "result": result})
+                result = await self._execute_tool(tool_name, tool_args, patient_id, lat=lat, lng=lng)
+                actions_taken.append({
+                    "tool": tool_name,
+                    "args": tool_args,
+                    "result": result,
+                })
 
+                # Add tool result to messages
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
