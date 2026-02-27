@@ -27,15 +27,31 @@ export async function POST(request: Request) {
         // Determine role
         const role = email.toLowerCase().endsWith('@doctor.com') ? 'doctor' : 'patient';
 
-        // Create user
-        const { error: insertError } = await supabase
+        // Create user and return the new ID
+        const { data: newUser, error: insertError } = await supabase
             .from('users')
             .insert([
                 { name, email, password_hash: passwordHash, role }
-            ]);
+            ])
+            .select('id')
+            .single();
 
-        if (insertError) {
-            throw insertError;
+        if (insertError || !newUser) {
+            throw insertError || new Error('Failed to create user');
+        }
+
+        // If patient role, also create a patients record
+        if (role === 'patient') {
+            const { error: patientError } = await supabase
+                .from('patients')
+                .insert([
+                    { user_id: newUser.id, name }
+                ]);
+
+            if (patientError) {
+                console.error('Failed to create patient record:', patientError);
+                // Don't fail the signup, but log the error
+            }
         }
 
         return NextResponse.json({ message: 'User created successfully' }, { status: 201 });

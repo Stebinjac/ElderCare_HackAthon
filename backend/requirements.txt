@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+supabase
+anthropic
+requests
+python-dotenv
+apscheduler
+langgraph
+pillow
+reportlab
+weasyprint
+pytest
+google-genai

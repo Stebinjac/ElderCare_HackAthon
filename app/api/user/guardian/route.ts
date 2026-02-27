@@ -9,15 +9,26 @@ export async function GET() {
     }
 
     try {
-        const { data: user, error } = await supabase
-            .from('users')
-            .select('guardian_phone')
-            .eq('id', authUser.userId)
+        // Get the patient's guardian_id, then fetch guardian's phone
+        const { data: patient, error: pError } = await supabase
+            .from('patients')
+            .select('guardian_id')
+            .eq('user_id', authUser.userId)
             .single();
 
-        if (error) throw error;
+        if (pError || !patient?.guardian_id) {
+            return NextResponse.json({ guardianPhone: '' });
+        }
 
-        return NextResponse.json({ guardianPhone: user?.guardian_phone || '' });
+        const { data: guardian, error: gError } = await supabase
+            .from('users')
+            .select('phone')
+            .eq('id', patient.guardian_id)
+            .single();
+
+        if (gError) throw gError;
+
+        return NextResponse.json({ guardianPhone: guardian?.phone || '' });
     } catch (error) {
         console.error('Failed to fetch guardian phone:', error);
         return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -33,9 +44,10 @@ export async function PATCH(request: Request) {
     try {
         const { guardianPhone } = await request.json();
 
+        // Update the patient's own phone as guardian contact (if no separate guardian user exists yet)
         const { error } = await supabase
             .from('users')
-            .update({ guardian_phone: guardianPhone })
+            .update({ phone: guardianPhone })
             .eq('id', authUser.userId);
 
         if (error) throw error;

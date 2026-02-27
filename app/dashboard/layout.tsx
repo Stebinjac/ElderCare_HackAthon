@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Heart, Calendar, FileText, Settings, LogOut, Menu, X, Activity, Users, ClipboardList, Bot } from 'lucide-react';
+import { Heart, Calendar, FileText, Settings, LogOut, Menu, X, Activity, Users, ClipboardList, Bot, ShieldAlert, Database, Upload } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
@@ -12,7 +12,7 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-    const [user, setUser] = useState<{ name: string } | null>(null);
+    const [user, setUser] = useState<{ name: string; role?: string } | null>(null);
     const pathname = usePathname();
     const router = useRouter();
 
@@ -50,7 +50,7 @@ export default function DashboardLayout({
         }
     };
 
-    const navItems = [
+    const patientNavItems = [
         { icon: Activity, label: 'Dashboard', href: '/dashboard' },
         { icon: FileText, label: 'Lab Reports', href: '/dashboard/reports' },
         { icon: Heart, label: 'Health Summary', href: '/dashboard/summary' },
@@ -58,8 +58,13 @@ export default function DashboardLayout({
         { icon: ClipboardList, label: 'Prescriptions', href: '/dashboard/prescriptions' },
         { icon: Calendar, label: 'Appointments', href: '/dashboard/appointments' },
         { icon: Bot, label: 'AgentCare', href: '/dashboard/agents' },
+        { icon: ShieldAlert, label: 'Guardian View', href: '/dashboard/guardian' },
+        { icon: Database, label: 'Admin Panel', href: '/dashboard/admin' },
         { icon: Settings, label: 'Settings', href: '/dashboard/settings' },
     ];
+
+    const navItems = patientNavItems;
+
 
     const getPageTitle = () => {
         const activeItem = navItems.find(item => pathname.startsWith(item.href));

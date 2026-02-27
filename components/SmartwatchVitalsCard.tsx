@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { useWatchSimulator } from '@/hooks/useWatchSimulator';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
+import { CheckCircle, Loader2, AlertTriangle } from 'lucide-react';
 
 interface SmartwatchVitalsCardProps {
     showControls?: boolean;
@@ -12,6 +13,8 @@ interface SmartwatchVitalsCardProps {
 export function SmartwatchVitalsCard({ showControls = true }: SmartwatchVitalsCardProps) {
     const { vitals, isManual, decreaseVitals, increaseVitals, resetToAuto } = useWatchSimulator();
     const [timeAgo, setTimeAgo] = useState('just now');
+    const [isLogging, setIsLogging] = useState(false);
+    const [logResult, setLogResult] = useState<{ message: string; isEmergency: boolean } | null>(null);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -21,6 +24,42 @@ export function SmartwatchVitalsCard({ showControls = true }: SmartwatchVitalsCa
         }, 1000);
         return () => clearInterval(interval);
     }, [vitals.lastSync]);
+
+    // Auto-clear log result after 5 seconds
+    useEffect(() => {
+        if (logResult) {
+            const t = setTimeout(() => setLogResult(null), 5000);
+            return () => clearTimeout(t);
+        }
+    }, [logResult]);
+
+    const handleLogVitals = async () => {
+        setIsLogging(true);
+        setLogResult(null);
+        try {
+            const [sys, dia] = vitals.bloodPressure.split('/').map(Number);
+            const res = await fetch('/api/vitals/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    bp_systolic: sys,
+                    bp_diastolic: dia,
+                    heartRate: vitals.heartRate,
+                    spo2: vitals.spo2,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setLogResult({ message: data.message, isEmergency: data.isEmergency });
+            } else {
+                setLogResult({ message: `Error: ${data.error}`, isEmergency: false });
+            }
+        } catch {
+            setLogResult({ message: 'Failed to connect. Check your connection.', isEmergency: false });
+        } finally {
+            setIsLogging(false);
+        }
+    };
 
     const getStatusColor = (type: string, value: number | string) => {
         if (type === 'heartRate') {
@@ -146,6 +185,40 @@ export function SmartwatchVitalsCard({ showControls = true }: SmartwatchVitalsCa
                     >
                         Reset to Normal Vitals
                     </button>
+
+                    {/* === LOG VITALS BUTTON === */}
+                    <button
+                        onClick={handleLogVitals}
+                        disabled={isLogging}
+                        className={cn(
+                            "w-full py-3.5 rounded-2xl font-black text-sm uppercase tracking-widest transition-all active:scale-95 flex items-center justify-center gap-2",
+                            hasAnyCritical
+                                ? "bg-red-600 hover:bg-red-700 text-white animate-pulse hover:animate-none"
+                                : "bg-green-600 hover:bg-green-700 text-white"
+                        )}
+                    >
+                        {isLogging ? (
+                            <><Loader2 className="w-4 h-4 animate-spin" /> Logging…</>
+                        ) : (
+                            <>💾 Log Vitals to Record</>
+                        )}
+                    </button>
+
+                    {/* Feedback Message */}
+                    {logResult && (
+                        <div className={cn(
+                            "p-3 rounded-xl text-xs font-bold flex items-start gap-2",
+                            logResult.isEmergency
+                                ? "bg-red-50 border border-red-200 text-red-700"
+                                : "bg-green-50 border border-green-200 text-green-700"
+                        )}>
+                            {logResult.isEmergency
+                                ? <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                : <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                            }
+                            {logResult.message}
+                        </div>
+                    )}
                 </div>
             )}
 

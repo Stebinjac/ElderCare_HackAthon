@@ -18,20 +18,40 @@ export async function POST(request: Request) {
     try {
         const { type, value, message } = await request.json();
 
-        // Fetch guardian phone
-        const { data: user, error } = await supabase
-            .from('users')
-            .select('guardian_phone, name')
-            .eq('id', authUser.userId)
+        // Fetch patient record to find guardian
+        const { data: patient, error: pError } = await supabase
+            .from('patients')
+            .select('name, guardian_id')
+            .eq('user_id', authUser.userId)
             .single();
 
-        if (error || !user) {
-            console.error('Error fetching user for alert:', error);
-            return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        if (pError || !patient) {
+            console.error('Error fetching patient for alert:', pError);
+            return NextResponse.json({ error: 'Patient not found' }, { status: 404 });
         }
 
-        if (!user?.guardian_phone) {
-            console.warn(`No guardian phone set for user ${user?.name || authUser.userId}. Alert skipped.`);
+        let guardianPhone: string | null = null;
+        if (patient.guardian_id) {
+            const { data: guardian } = await supabase
+                .from('users')
+                .select('phone')
+                .eq('id', patient.guardian_id)
+                .single();
+            guardianPhone = guardian?.phone || null;
+        }
+
+        if (!guardianPhone) {
+            // Fallback: use the user's own phone number
+            const { data: selfUser } = await supabase
+                .from('users')
+                .select('phone')
+                .eq('id', authUser.userId)
+                .single();
+            guardianPhone = selfUser?.phone || null;
+        }
+
+        if (!guardianPhone) {
+            console.warn(`No guardian phone set for patient ${patient.name}. Alert skipped.`);
             return NextResponse.json({ success: false, error: 'No guardian phone set' });
         }
 
@@ -39,9 +59,9 @@ export async function POST(request: Request) {
         if (accountSid && authToken && twilioPhoneNumber) {
             try {
                 const response = await client.messages.create({
-                    body: `🚨 ELDERCARE ALERT: ${user.name}'s ${type} measurement of ${value} is critical. Message: ${message}`,
+                    body: `🚨 ELDERCARE ALERT: ${patient.name}'s ${type} measurement of ${value} is critical. Message: ${message}`,
                     from: twilioPhoneNumber,
-                    to: user.guardian_phone
+                    to: guardianPhone
                 });
                 console.log(`Actual SMS sent via Twilio! SID: ${response.sid}`);
                 return NextResponse.json({ success: true, actualSent: true });
@@ -57,8 +77,8 @@ export async function POST(request: Request) {
             // SIMULATED SMS SENDING (Fallback if creds are missing)
             console.warn('Twilio credentials missing. Falling back to simulated log.');
             console.log('--- SIMULATED SMS ALERT ---');
-            console.log(`To: ${user.guardian_phone}`);
-            console.log(`Message: 🚨 ELDERCARE ALERT: ${user.name}'s ${type} measurement of ${value} is critical. Message: ${message}`);
+            console.log(`To: ${guardianPhone}`);
+            console.log(`Message: 🚨 ELDERCARE ALERT: ${patient.name}'s ${type} measurement of ${value} is critical. Message: ${message}`);
             console.log('---------------------------');
             return NextResponse.json({ success: true, simulated: true, warning: 'Twilio credentials missing' });
         }

@@ -11,17 +11,27 @@ export async function GET() {
     try {
         const { data: user, error } = await supabase
             .from('users')
-            .select('name, email, guardian_phone, dob')
+            .select('name, email, phone, role')
             .eq('id', authUser.userId)
             .single();
 
         if (error) throw error;
 
-        // Map database guardian_phone to phone for the frontend
+        // Also fetch patient-specific data if applicable
+        let patientData = null;
+        if (user?.role === 'patient') {
+            const { data: patient } = await supabase
+                .from('patients')
+                .select('id, age, gender, conditions, allergies, blood_group, phone as patient_phone')
+                .eq('user_id', authUser.userId)
+                .single();
+            patientData = patient;
+        }
+
         return NextResponse.json({
             user: {
                 ...user,
-                phone: user.guardian_phone
+                patient: patientData
             }
         });
     } catch (error) {
@@ -37,15 +47,35 @@ export async function PATCH(request: Request) {
     }
 
     try {
-        const { name, phone, dob } = await request.json();
+        const { name, phone, age, gender, conditions, allergies, blood_group } = await request.json();
 
-        // Map phone from frontend to guardian_phone in DB
-        const { error } = await supabase
+        // Update core user fields
+        const { error: userError } = await supabase
             .from('users')
-            .update({ name, guardian_phone: phone, dob })
+            .update({ name, phone })
             .eq('id', authUser.userId);
 
-        if (error) throw error;
+        if (userError) throw userError;
+
+        // Update patient-specific fields if they exist
+        if (age !== undefined || gender !== undefined || conditions !== undefined || allergies !== undefined || blood_group !== undefined) {
+            const patientUpdate: any = {};
+            if (name !== undefined) patientUpdate.name = name;
+            if (age !== undefined) patientUpdate.age = age;
+            if (gender !== undefined) patientUpdate.gender = gender;
+            if (conditions !== undefined) patientUpdate.conditions = conditions;
+            if (allergies !== undefined) patientUpdate.allergies = allergies;
+            if (blood_group !== undefined) patientUpdate.blood_group = blood_group;
+
+            const { error: patientError } = await supabase
+                .from('patients')
+                .update(patientUpdate)
+                .eq('user_id', authUser.userId);
+
+            if (patientError) {
+                console.error('Failed to update patient profile:', patientError);
+            }
+        }
 
         return NextResponse.json({ success: true });
     } catch (error) {

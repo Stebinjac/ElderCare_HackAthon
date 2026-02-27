@@ -12,7 +12,7 @@ export default function SettingsPage() {
         name: '',
         email: '',
         phone: '',
-        dob: ''
+        age: '',
     });
     const [guardianPhone, setGuardianPhone] = useState('');
     const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -46,7 +46,7 @@ export default function SettingsPage() {
         try {
             const res = await fetch('/api/user/profile', {
                 method: 'PATCH',
-                body: JSON.stringify(profile),
+                body: JSON.stringify({ name: profile.name, phone: profile.phone, age: profile.age ? parseInt(profile.age) : undefined }),
                 headers: { 'Content-Type': 'application/json' },
             });
             if (res.ok) {
@@ -122,12 +122,13 @@ export default function SettingsPage() {
                                 />
                             </div>
                             <div className="space-y-3">
-                                <label className="text-sm font-bold text-foreground/70 uppercase tracking-widest px-1">Date of Birth</label>
+                                <label className="text-sm font-bold text-foreground/70 uppercase tracking-widest px-1">Age</label>
                                 <Input
-                                    type="date"
-                                    value={profile.dob}
-                                    onChange={(e) => setProfile({ ...profile, dob: e.target.value })}
+                                    type="number"
+                                    value={profile.age}
+                                    onChange={(e) => setProfile({ ...profile, age: e.target.value })}
                                     className="h-14 text-lg bg-background/50 border-border/50"
+                                    placeholder="Your age"
                                 />
                             </div>
                         </div>

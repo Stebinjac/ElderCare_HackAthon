@@ -9,45 +9,81 @@ export async function GET() {
     }
 
     try {
-        const { data, error } = await supabase
-            .from('medical_reports')
-            .select('reports')
+        // 1. Get Patient ID
+        const { data: patient, error: pError } = await supabase
+            .from('patients')
+            .select('id')
             .eq('user_id', user.userId)
             .single();
 
-        if (error && error.code !== 'PGRST116') {
-            throw error;
+        if (pError || !patient) {
+            return NextResponse.json({
+                stats: [
+                    { label: 'Total Reports', value: '0' },
+                    { label: 'Last Checkup', value: 'N/A' },
+                    { label: 'Upcoming', value: 'None' },
+                ],
+                recentActivity: []
+            });
         }
 
-        const reports = data?.reports || [];
+        const patientId = patient.id;
 
-        // Calculate stats
-        const totalReports = reports.length;
+        // 2. Fetch Vitals Count (as a proxy for activity)
+        const { count: vitalsCount } = await supabase
+            .from('vitals')
+            .select('*', { count: 'exact', head: true })
+            .eq('patient_id', patientId);
 
-        // Find last checkup (latest likelyDate)
-        let lastCheckup = 'No reports yet';
-        if (reports.length > 0) {
-            const sortedReports = [...reports].sort((a, b) =>
-                new Date(b.likelyDate).getTime() - new Date(a.likelyDate).getTime()
-            );
-            lastCheckup = sortedReports[0].likelyDate;
-        }
+        // 3. Fetch Medications Count
+        const { count: medsCount } = await supabase
+            .from('medications')
+            .select('*', { count: 'exact', head: true })
+            .eq('patient_id', patientId);
 
-        // Recent activity (latest 3 tests/reports)
-        const recentActivity = reports.slice(0, 3).map((r: any) => ({
-            date: r.likelyDate,
-            action: r.tests[0]?.name || 'Lab Report',
-            result: r.tests[0]?.result || 'View Details',
-            trend: (r.tests[0]?.status || 'normal').toLowerCase()
-        }));
+        // 4. Fetch Last Checkup (Latest Vital)
+        const { data: lastVital } = await supabase
+            .from('vitals')
+            .select('logged_at')
+            .eq('patient_id', patientId)
+            .order('logged_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        // 5. Fetch Upcoming Appointment (appointments.patient_id references users.id)
+        const { data: upcomingApp } = await supabase
+            .from('appointments')
+            .select('date, type')
+            .eq('patient_id', user.userId)
+            .eq('status', 'pending')
+            .gte('date', new Date().toISOString().split('T')[0])
+            .order('date', { ascending: true })
+            .limit(1)
+            .single();
+
+        // 6. Recent Activity (Recent Vitals)
+        const { data: recentVitals } = await supabase
+            .from('vitals')
+            .select('logged_at, bp_systolic, bp_diastolic')
+            .eq('patient_id', patientId)
+            .order('logged_at', { ascending: false })
+            .limit(3);
+
+        const recentActivity = recentVitals?.map(v => ({
+            date: new Date(v.logged_at).toLocaleDateString(),
+            action: 'Blood Pressure Log',
+            result: `${v.bp_systolic}/${v.bp_diastolic}`,
+            trend: v.bp_systolic > 140 ? 'high' : 'normal'
+        })) || [];
 
         return NextResponse.json({
             stats: [
-                { label: 'Total Reports', value: totalReports.toString() },
-                { label: 'Last Checkup', value: lastCheckup },
-                { label: 'Upcoming', value: 'None Scheduled' }, // Placeholder until appointments are implemented
+                { label: 'Total Reports', value: medsCount?.toString() || '0', sublabel: 'Medications' },
+                { label: 'Last Checkup', value: lastVital ? new Date(lastVital.logged_at).toLocaleDateString() : 'Never' },
+                { label: 'Upcoming', value: upcomingApp ? `${upcomingApp.date}` : 'None', sublabel: upcomingApp?.type || 'No appointments' },
             ],
-            recentActivity
+            recentActivity,
+            vitalsCount: vitalsCount || 0
         });
     } catch (error) {
         console.error('Fetch stats error:', error);
