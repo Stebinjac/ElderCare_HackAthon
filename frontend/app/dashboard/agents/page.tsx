@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope } from 'lucide-react';
+import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope, Mic, MicOff } from 'lucide-react';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -108,12 +108,28 @@ export default function AgentCarePage() {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isRecording, setIsRecording] = useState(false);
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    const [voiceError, setVoiceError] = useState<string | null>(null);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const streamRef = useRef<MediaStream | null>(null);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    // Cleanup on unmount
+    useEffect(() => {
+        return () => {
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(t => t.stop());
+            }
+        };
+    }, []);
 
     const sendMessage = async (text?: string) => {
         const msg = text || input.trim();
@@ -156,6 +172,87 @@ export default function AgentCarePage() {
         }
     };
 
+    const startRecording = async () => {
+        setVoiceError(null);
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            streamRef.current = stream;
+            audioChunksRef.current = [];
+
+            const mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+            mediaRecorderRef.current = mediaRecorder;
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    audioChunksRef.current.push(e.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                // Stop all tracks to release mic
+                stream.getTracks().forEach(t => t.stop());
+                streamRef.current = null;
+
+                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+                audioChunksRef.current = [];
+
+                if (audioBlob.size === 0) return;
+
+                setIsTranscribing(true);
+                try {
+                    const formData = new FormData();
+                    formData.append('audio', audioBlob, 'recording.webm');
+
+                    const res = await fetch('/api/stt', {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    const data = await res.json();
+
+                    if (!res.ok || !data.transcript) {
+                        setVoiceError(data.error || 'Could not transcribe audio. Please try again.');
+                        return;
+                    }
+
+                    const transcript = data.transcript.trim();
+                    if (transcript) {
+                        // Auto-send transcript directly to agent — zero friction
+                        await sendMessage(transcript);
+                    }
+                } catch (err) {
+                    setVoiceError('Network error during transcription. Please try again.');
+                } finally {
+                    setIsTranscribing(false);
+                }
+            };
+
+            mediaRecorder.start();
+            setIsRecording(true);
+        } catch (err: any) {
+            if (err.name === 'NotAllowedError') {
+                setVoiceError('Microphone access denied. Please allow mic permissions in your browser.');
+            } else {
+                setVoiceError('Could not access microphone. Please check your device settings.');
+            }
+        }
+    };
+
+    const stopRecording = () => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsRecording(false);
+    };
+
+    const toggleRecording = () => {
+        if (isRecording) {
+            stopRecording();
+        } else {
+            startRecording();
+        }
+    };
+
     return (
         <div className="flex flex-col h-[calc(100vh-120px)] max-w-3xl mx-auto">
             {/* Chat Messages */}
@@ -168,7 +265,7 @@ export default function AgentCarePage() {
                         <div>
                             <h2 className="text-2xl font-bold text-foreground mb-2">AgentCare AI</h2>
                             <p className="text-muted-foreground max-w-md">
-                                I can check your vitals, book appointments with doctors, find nearby hospitals, and send emergency alerts. Just ask!
+                                I can check your vitals, book appointments with doctors, find nearby hospitals, and send emergency alerts. Just ask — or tap the mic and speak!
                             </p>
                         </div>
                         <div className="grid grid-cols-2 gap-3 max-w-lg w-full">
@@ -230,6 +327,32 @@ export default function AgentCarePage() {
                 <div ref={messagesEndRef} />
             </div>
 
+            {/* Voice Error Banner */}
+            {voiceError && (
+                <div className="mb-2 px-4 py-2.5 rounded-xl bg-destructive/10 border border-destructive/30 text-destructive text-sm flex items-center justify-between gap-2">
+                    <span>{voiceError}</span>
+                    <button onClick={() => setVoiceError(null)} className="text-destructive/60 hover:text-destructive font-bold shrink-0">✕</button>
+                </div>
+            )}
+
+            {/* Recording Status Banner */}
+            {isRecording && (
+                <div className="mb-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center gap-3">
+                    <span className="relative flex h-3 w-3 shrink-0">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    </span>
+                    <span className="text-sm font-semibold text-red-600 dark:text-red-400">Recording… Tap mic to stop and send</span>
+                </div>
+            )}
+
+            {isTranscribing && (
+                <div className="mb-2 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-3">
+                    <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                    <span className="text-sm font-semibold text-primary">Transcribing your voice with Sarvam AI…</span>
+                </div>
+            )}
+
             {/* Input Bar */}
             <div className="border-t border-border pt-4">
                 <form
@@ -239,20 +362,53 @@ export default function AgentCarePage() {
                     <input
                         ref={inputRef}
                         type="text"
-                        placeholder="Ask AgentCare anything..."
+                        placeholder={isRecording ? "🎙 Listening... tap mic to stop" : "Ask AgentCare anything or tap the mic..."}
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
-                        disabled={isLoading}
-                        className="flex-1 h-12 px-4 rounded-xl bg-secondary/50 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-base"
+                        disabled={isLoading || isRecording || isTranscribing}
+                        className="flex-1 h-12 px-4 rounded-xl bg-secondary/50 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-base disabled:opacity-60"
                     />
+
+                    {/* Mic Button */}
+                    <button
+                        type="button"
+                        onClick={toggleRecording}
+                        disabled={isLoading || isTranscribing}
+                        title={isRecording ? "Stop recording" : "Start voice input"}
+                        className={`
+                            relative h-12 w-12 rounded-xl flex items-center justify-center transition-all duration-200 shrink-0
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                            ${isRecording
+                                ? 'bg-red-500 hover:bg-red-600 shadow-lg shadow-red-500/40 text-white'
+                                : 'bg-secondary border border-border text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40'
+                            }
+                        `}
+                    >
+                        {isTranscribing ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : isRecording ? (
+                            <>
+                                <span className="absolute inset-0 rounded-xl animate-ping bg-red-400 opacity-30" />
+                                <MicOff className="w-5 h-5 relative" />
+                            </>
+                        ) : (
+                            <Mic className="w-5 h-5" />
+                        )}
+                    </button>
+
+                    {/* Send Button */}
                     <Button
                         type="submit"
-                        disabled={isLoading || !input.trim()}
-                        className="h-12 w-12 rounded-xl p-0 bg-primary hover:bg-primary/90 shadow-lg"
+                        disabled={isLoading || !input.trim() || isRecording || isTranscribing}
+                        className="h-12 w-12 rounded-xl p-0 bg-primary hover:bg-primary/90 shadow-lg shrink-0"
                     >
                         <Send className="w-5 h-5" />
                     </Button>
                 </form>
+
+                <p className="text-center text-xs text-muted-foreground mt-2 opacity-60">
+                    Powered by Sarvam AI (Speech) · Groq LLaMA 3.3 70B (Agent)
+                </p>
             </div>
         </div>
     );
