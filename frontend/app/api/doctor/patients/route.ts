@@ -9,20 +9,20 @@ export async function GET() {
     }
 
     try {
-        // Fetch patients that have an 'accepted' relation with this doctor
-        const { data: relations, error: relError } = await supabase
-            .from('doctor_patient_relations')
+        // Fetch patient IDs from accepted appointments for this doctor
+        const { data: appointments, error: apptError } = await supabase
+            .from('appointments')
             .select('patient_id')
             .eq('doctor_id', user.userId)
             .eq('status', 'accepted');
 
-        if (relError) throw relError;
+        if (apptError) throw apptError;
 
-        if (!relations || relations.length === 0) {
+        const patientIds = Array.from(new Set(appointments?.map(a => a.patient_id) || []));
+
+        if (patientIds.length === 0) {
             return NextResponse.json({ patients: [] });
         }
-
-        const patientIds = relations.map(r => r.patient_id);
 
         const { data: consumers, error: userError } = await supabase
             .from('users')
