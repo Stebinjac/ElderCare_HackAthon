@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Bot, Send, User, Loader2, MapPin, Calendar, AlertTriangle, Heart, Pill, Stethoscope, Mic, MicOff } from 'lucide-react';
+import { db } from '@/lib/firebase';
+import { doc, getDoc, setDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 interface ChatMessage {
     role: 'user' | 'assistant';
@@ -111,6 +113,7 @@ export default function AgentCarePage() {
     const [isRecording, setIsRecording] = useState(false);
     const [isTranscribing, setIsTranscribing] = useState(false);
     const [voiceError, setVoiceError] = useState<string | null>(null);
+    const [userId, setUserId] = useState<string | null>(null);
 
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
@@ -122,8 +125,40 @@ export default function AgentCarePage() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    // Cleanup on unmount
+    // Fetch user and load history
     useEffect(() => {
+        const initChat = async () => {
+            try {
+                const res = await fetch('/api/user/profile');
+                if (res.ok) {
+                    const data = await res.json();
+                    const uid = data.user?.email; // Use email as unique ID if userId isn't directly exposed in profile payload
+                    // Attempt to get userId from headers/context if possible, but profile should have it.
+                    // Let's refine based on the profile route seen earlier.
+
+                    // Re-checking profile route... it returns { user: { name, email, guardian_phone, dob, phone } }
+                    // I will use email as the partition key for now as it's definitely unique.
+                    setUserId(data.user.email);
+
+                    if (data.user.email) {
+                        const docRef = doc(db, 'chats', data.user.email);
+                        const docSnap = await getDoc(docRef);
+
+                        if (docSnap.exists()) {
+                            const chatData = docSnap.data();
+                            if (chatData.history && Array.isArray(chatData.history)) {
+                                setMessages(chatData.history);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to load chat history:", err);
+            }
+        };
+
+        initChat();
+
         return () => {
             if (streamRef.current) {
                 streamRef.current.getTracks().forEach(t => t.stop());
@@ -139,6 +174,16 @@ export default function AgentCarePage() {
         setMessages(prev => [...prev, userMessage]);
         setInput('');
         setIsLoading(true);
+
+        // Save to Firebase (Single Document Array)
+        if (userId) {
+            setDoc(doc(db, 'chats', userId), {
+                history: arrayUnion({
+                    ...userMessage,
+                    timestamp: new Date().toISOString()
+                })
+            }, { merge: true }).catch((err: any) => console.error("Firebase store error:", err));
+        }
 
         try {
             const history = messages.map(m => ({ role: m.role, content: m.content }));
@@ -161,6 +206,16 @@ export default function AgentCarePage() {
                 actions: data.actions,
             };
             setMessages(prev => [...prev, assistantMessage]);
+
+            // Save to Firebase (Assistant response)
+            if (userId) {
+                setDoc(doc(db, 'chats', userId), {
+                    history: arrayUnion({
+                        ...assistantMessage,
+                        timestamp: new Date().toISOString()
+                    })
+                }, { merge: true }).catch((err: any) => console.error("Firebase store error assistant:", err));
+            }
         } catch (error) {
             setMessages(prev => [...prev, {
                 role: 'assistant',
