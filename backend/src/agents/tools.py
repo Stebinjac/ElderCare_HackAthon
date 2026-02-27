@@ -1,27 +1,22 @@
 """
 AgentCare Tool Functions
-Executable actions that the AI agent can invoke via Gemini function-calling.
+Executable actions that the AI agent can invoke via function-calling.
 """
 import os
-import json
 import httpx
 from typing import Dict, Any, Optional
 from supabase import Client
 
 
 async def get_health_summary(supabase: Client, patient_id: str) -> Dict[str, Any]:
-    """Fetch latest vitals and lab report metrics for the patient."""
-    # Get user profile
     user_res = supabase.table("users").select("name, email, dob, guardian_phone").eq("id", patient_id).execute()
     user = user_res.data[0] if user_res.data else {}
 
-    # Get latest vitals
     vitals_res = supabase.table("vitals").select("*").eq("patient_id", patient_id).order("logged_at", desc=True).limit(5).execute()
-    vitals = vitals_res.data
+    vitals = vitals_res.data or []
 
-    # Get medications
     meds_res = supabase.table("medications").select("name, dosage, frequency").eq("patient_id", patient_id).execute()
-    medications = meds_res.data
+    medications = meds_res.data or []
 
     return {
         "patient_name": user.get("name", "Unknown"),
@@ -33,8 +28,24 @@ async def get_health_summary(supabase: Client, patient_id: str) -> Dict[str, Any
     }
 
 
+async def get_available_doctors(supabase: Client) -> Dict[str, Any]:
+    """Fetch all available doctors with their names and specialities."""
+    res = supabase.table("users").select("id, name, speciality, email").eq("role", "doctor").execute()
+    doctors = res.data or []
+    return {
+        "doctors": [
+            {
+                "name": d["name"],
+                "speciality": d.get("speciality") or "General Physician",
+                "email": d.get("email"),
+            }
+            for d in doctors
+        ],
+        "total": len(doctors),
+    }
+
+
 async def get_appointments(supabase: Client, patient_id: str) -> Dict[str, Any]:
-    """List upcoming appointments for the patient."""
     res = supabase.table("appointments").select(
         "*, doctor:doctor_id (name, email)"
     ).eq("patient_id", patient_id).order("date", desc=False).execute()
@@ -47,6 +58,7 @@ async def get_appointments(supabase: Client, patient_id: str) -> Dict[str, Any]:
         "type": a["type"],
         "status": a["status"],
         "reason": a.get("reason"),
+        "patient_notes": a.get("patient_notes"),
     } for a in (res.data or [])]
 
     return {"appointments": appointments, "total": len(appointments)}
@@ -59,21 +71,26 @@ async def book_appointment(
     date: Optional[str] = None,
     time: Optional[str] = None,
     reason: Optional[str] = None,
+    patient_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Auto-book an appointment with a doctor. Finds the assigned doctor if not specified."""
-    # Find doctor
+    """Book appointment with a doctor chosen by name from get_available_doctors."""
+    doc_res = None
+
+    # Find doctor by name
     if doctor_name:
-        doc_res = supabase.table("users").select("id, name").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
-    else:
-        # Find any doctor linked to this patient
+        doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").ilike("name", f"%{doctor_name}%").limit(1).execute()
+
+    # Fallback: patient's assigned doctor
+    if not doc_res or not doc_res.data:
         rel_res = supabase.table("doctor_patient_relations").select("doctor_id").eq("patient_id", patient_id).eq("status", "accepted").limit(1).execute()
         if rel_res.data:
-            doc_res = supabase.table("users").select("id, name").eq("id", rel_res.data[0]["doctor_id"]).execute()
-        else:
-            # Fallback: find any available doctor
-            doc_res = supabase.table("users").select("id, name").eq("role", "doctor").limit(1).execute()
+            doc_res = supabase.table("users").select("id, name, speciality").eq("id", rel_res.data[0]["doctor_id"]).execute()
 
-    if not doc_res.data:
+    # Last resort: any doctor
+    if not doc_res or not doc_res.data:
+        doc_res = supabase.table("users").select("id, name, speciality").eq("role", "doctor").limit(1).execute()
+
+    if not doc_res or not doc_res.data:
         return {"success": False, "error": "No doctors found in the system."}
 
     doctor = doc_res.data[0]
@@ -83,7 +100,7 @@ async def book_appointment(
         from datetime import datetime, timedelta
         date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
-    # Find available slot
+    # Auto-pick first available slot
     if not time:
         slots_res = supabase.table("appointments").select("time").eq("doctor_id", doctor["id"]).eq("date", date).in_("status", ["pending", "accepted"]).execute()
         booked = [s["time"] for s in (slots_res.data or [])]
@@ -91,7 +108,6 @@ async def book_appointment(
         available = [s for s in all_slots if s not in booked]
         time = available[0] if available else "10:00"
 
-    # Book it
     insert_res = supabase.table("appointments").insert({
         "patient_id": patient_id,
         "doctor_id": doctor["id"],
@@ -99,6 +115,7 @@ async def book_appointment(
         "time": time,
         "type": reason or "General Checkup",
         "reason": reason,
+        "patient_notes": patient_notes,
         "status": "pending",
     }).execute()
 
@@ -106,9 +123,11 @@ async def book_appointment(
         return {
             "success": True,
             "doctor_name": doctor["name"],
+            "doctor_speciality": doctor.get("speciality") or "General Physician",
             "date": date,
             "time": time,
-            "reason": reason or "General Checkup",
+            "reason": reason,
+            "patient_notes": patient_notes,
             "status": "pending",
         }
     return {"success": False, "error": "Failed to insert appointment."}
@@ -119,10 +138,7 @@ async def find_nearest_hospital(
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Find nearest hospitals using OpenStreetMap Nominatim + Overpass API."""
-    # Default to a location if none provided
     if not latitude or not longitude:
-        # Geocode the city
         city = patient_city or "New York"
         async with httpx.AsyncClient() as client:
             geo_res = await client.get(
@@ -137,7 +153,6 @@ async def find_nearest_hospital(
             else:
                 return {"hospitals": [], "error": f"Could not geocode city: {city}"}
 
-    # Search hospitals via Overpass API (OpenStreetMap)
     overpass_query = f"""
     [out:json][timeout:10];
     (
@@ -159,9 +174,8 @@ async def find_nearest_hospital(
         tags = el.get("tags", {})
         lat = el.get("lat") or el.get("center", {}).get("lat")
         lon = el.get("lon") or el.get("center", {}).get("lon")
-        name = tags.get("name", "Unnamed Hospital")
         hospitals.append({
-            "name": name,
+            "name": tags.get("name", "Unnamed Hospital"),
             "address": tags.get("addr:full") or tags.get("addr:street", "Address not available"),
             "phone": tags.get("phone", "N/A"),
             "emergency": tags.get("emergency", "unknown"),
@@ -174,25 +188,19 @@ async def find_nearest_hospital(
 
 
 async def send_emergency_alert(supabase: Client, patient_id: str, message: Optional[str] = None) -> Dict[str, Any]:
-    """Send an emergency SMS alert to the patient's guardian via Twilio."""
-    # Get patient info
     user_res = supabase.table("users").select("name, guardian_phone").eq("id", patient_id).execute()
     user = user_res.data[0] if user_res.data else {}
 
     if not user.get("guardian_phone"):
-        return {"success": False, "error": "No guardian phone number on file. Please update profile settings."}
+        return {"success": False, "error": "No guardian phone number on file."}
 
     alert_message = message or f"Emergency alert for {user.get('name', 'your loved one')}. Please check on them immediately."
 
-    # Use Twilio if available
     try:
-        import twilio
         from twilio.rest import Client as TwilioClient
-
         sid = os.environ.get("TWILIO_ACCOUNT_SID")
         token = os.environ.get("TWILIO_AUTH_TOKEN")
         from_phone = os.environ.get("TWILIO_PHONE_NUMBER")
-
         if sid and token and from_phone:
             tw_client = TwilioClient(sid, token)
             sms = tw_client.messages.create(
@@ -201,19 +209,12 @@ async def send_emergency_alert(supabase: Client, patient_id: str, message: Optio
                 to=user["guardian_phone"],
             )
             return {"success": True, "sent_to": user["guardian_phone"], "twilio_sid": sms.sid}
-    except Exception as e:
+    except Exception:
         pass
 
-    # Simulated fallback
-    return {
-        "success": True,
-        "sent_to": user["guardian_phone"],
-        "simulated": True,
-        "message": alert_message,
-    }
+    return {"success": True, "sent_to": user["guardian_phone"], "simulated": True, "message": alert_message}
 
 
 async def get_medications(supabase: Client, patient_id: str) -> Dict[str, Any]:
-    """Fetch current medications for the patient."""
     res = supabase.table("medications").select("*").eq("patient_id", patient_id).execute()
     return {"medications": res.data or [], "count": len(res.data or [])}
