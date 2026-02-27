@@ -156,20 +156,24 @@ async def find_nearest_hospital(
 ) -> Dict[str, Any]:
     """Find nearest hospitals using OpenStreetMap Nominatim + Overpass API."""
     search_lat, search_lon = latitude, longitude
+    print(f"[AgentCare] find_nearest_hospital: Initial Lat/Lng: {latitude}/{longitude}, City: {patient_city}")
 
     # If no coordinates, geocode the city
     if search_lat is None or search_lon is None:
-        city = patient_city or "New York"
+        city = patient_city or "Kochi"
+        print(f"[AgentCare] find_nearest_hospital: Missing coordinates. Geocoding fallback city: {city}")
         async with httpx.AsyncClient() as client:
             geo_res = await client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": city, "format": "json", "limit": 1},
                 headers={"User-Agent": "ElderCare-Hackathon/1.0"},
+                timeout=10.0,
             )
             geo_data = geo_res.json()
             if geo_data:
                 search_lat = float(geo_data[0]["lat"])
                 search_lon = float(geo_data[0]["lon"])
+                print(f"[AgentCare] Resolved {city} to {search_lat}/{search_lon}")
             else:
                 return {"hospitals": [], "error": f"Could not geocode city: {city}"}
 

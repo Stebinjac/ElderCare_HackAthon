@@ -107,7 +107,8 @@ INSTRUCTIONS:
    - Fever/General -> General Practice
 3. For appointments, if date/time is missing, assume Tomorrow at 10:00 AM.
 4. In an EMERGENCY, call BOTH `find_nearest_hospital` and `send_emergency_alert`.
-5. Be warm, reassuring, and concise.
+5. Use the user's live location (provided as metadata) automatically for searches. Coordinates are handled by the system; do not ask the user for them.
+6. Be warm, reassuring, and concise.
 """
 
 

@@ -54,6 +54,7 @@ async def root():
 async def chat(req: ChatRequest):
     """Process a chat message through the AI agent."""
     try:
+        print(f"[AgentCare] Chat request: {req.message} | Lat: {req.lat}, Lng: {req.lng}")
         history_dicts = [{"role": m.role, "content": m.content} for m in req.history] if req.history else []
         result = await orchestrator.chat(req.patient_id, req.message, history_dicts, lat=req.lat, lng=req.lng)
         return result
