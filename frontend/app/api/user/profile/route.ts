@@ -11,7 +11,7 @@ export async function GET() {
     try {
         const { data: user, error } = await supabase
             .from('users')
-            .select('name, email, guardian_phone, dob')
+            .select('name, email, guardian_phone, dob, hospital_name')
             .eq('id', authUser.userId)
             .single();
 
@@ -37,12 +37,17 @@ export async function PATCH(request: Request) {
     }
 
     try {
-        const { name, phone, dob } = await request.json();
+        const { name, phone, dob, hospital_name } = await request.json();
 
         // Map phone from frontend to guardian_phone in DB
         const { error } = await supabase
             .from('users')
-            .update({ name, guardian_phone: phone, dob })
+            .update({
+                name,
+                guardian_phone: phone,
+                dob,
+                hospital_name
+            })
             .eq('id', authUser.userId);
 
         if (error) throw error;

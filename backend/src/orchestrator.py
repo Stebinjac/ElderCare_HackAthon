@@ -221,7 +221,7 @@ class AgentOrchestrator:
         if not api_key:
             raise ValueError("GROQ_API_KEY is required in .env")
         self.client = Groq(api_key=api_key)
-        self.model = "llama-3.3-70b-versatile"
+        self.model = "llama-3.1-8b-instant"
 
     async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
         """Execute a tool function by name."""
@@ -231,7 +231,7 @@ class AgentOrchestrator:
         elif tool_name == "get_appointments":
             return await get_appointments(self.supabase, patient_id)
         elif tool_name == "get_available_doctors":
-            return await get_available_doctors(self.supabase)
+            return await get_available_doctors(self.supabase, user_lat=lat, user_lng=lng)
         elif tool_name == "book_appointment":
             return await book_appointment(
                 self.supabase, patient_id,
@@ -293,9 +293,16 @@ class AgentOrchestrator:
             except Exception as e:
                 error_msg = str(e)
                 print(f"[AgentCare] Groq API error: {error_msg}")
+                
+                # If rate limited, try fallback model
+                if ("rate_limit" in error_msg.lower() or "429" in error_msg) and self.model != "mixtral-8x7b-32768":
+                    print(f"[AgentCare] Rate limit hit for {self.model}. Trying fallback Mixtral...")
+                    self.model = "mixtral-8x7b-32768"
+                    continue # Retry with Mixtral
+                
                 if "rate_limit" in error_msg.lower() or "429" in error_msg:
                     return {
-                        "response": "I'm experiencing high demand right now. Please wait a moment and try again.",
+                        "response": "I'm experiencing very high demand right now. Please wait a minute and try again.",
                         "actions": actions_taken,
                     }
                 return {
