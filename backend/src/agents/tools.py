@@ -68,6 +68,7 @@ async def book_appointment(
     supabase: Client,
     patient_id: str,
     doctor_name: Optional[str] = None,
+    specialty: Optional[str] = None,
     date: Optional[str] = None,
     time: Optional[str] = None,
     reason: Optional[str] = None,

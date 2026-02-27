@@ -12,7 +12,7 @@ export async function GET() {
         // Fetch all users with 'doctor' role
         const { data, error } = await supabase
             .from('users')
-            .select('id, name, email')
+            .select('id, name, email, speciality')
             .eq('role', 'doctor');
 
         if (error) throw error;

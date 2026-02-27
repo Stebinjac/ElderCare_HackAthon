@@ -9,6 +9,7 @@ export const users = pgTable('users', {
     guardianPhone: text('guardian_phone'),
     phone: text('phone'),
     dob: text('dob'),
+    speciality: text('speciality'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

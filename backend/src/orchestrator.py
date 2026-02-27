@@ -231,6 +231,7 @@ class AgentOrchestrator:
             return await book_appointment(
                 self.supabase, patient_id,
                 doctor_name=args.get("doctor_name"),
+                specialty=args.get("specialty"),
                 date=args.get("date"),
                 time=args.get("time"),
                 reason=args.get("reason"),

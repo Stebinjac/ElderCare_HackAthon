@@ -12,9 +12,22 @@ export default function SignupPage() {
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [role, setRole] = useState<'patient' | 'doctor'>('patient');
+    const [speciality, setSpeciality] = useState('');
     const [error, setError] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const router = useRouter();
+
+    const SPECIALITIES = [
+        'General Practice',
+        'Cardiology',
+        'Geriatrics',
+        'Neurology',
+        'Pediatrics',
+        'Orthopedics',
+        'Psychiatry',
+        'Internal Medicine',
+    ];
 
     const handleSignup = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -25,7 +38,7 @@ export default function SignupPage() {
             const response = await fetch('/api/auth/signup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, password }),
+                body: JSON.stringify({ name, email, password, role, speciality: role === 'doctor' ? speciality : null }),
             });
 
             const data = await response.json();
@@ -81,6 +94,54 @@ export default function SignupPage() {
                                 />
                             </div>
                         </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-sm font-bold text-foreground/80 uppercase tracking-widest px-1">
+                                I am a...
+                            </label>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setRole('patient')}
+                                    className={`h-14 rounded-2xl border font-bold transition-all ${role === 'patient'
+                                        ? 'bg-primary text-white border-primary shadow-lg scale-[1.02]'
+                                        : 'bg-background/50 border-border/50 text-muted-foreground hover:bg-background'
+                                        }`}
+                                >
+                                    Patient
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setRole('doctor')}
+                                    className={`h-14 rounded-2xl border font-bold transition-all ${role === 'doctor'
+                                        ? 'bg-primary text-white border-primary shadow-lg scale-[1.02]'
+                                        : 'bg-background/50 border-border/50 text-muted-foreground hover:bg-background'
+                                        }`}
+                                >
+                                    Doctor
+                                </button>
+                            </div>
+                        </div>
+
+                        {role === 'doctor' && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                                <label htmlFor="speciality" className="block text-sm font-bold text-foreground/80 uppercase tracking-widest px-1">
+                                    Speciality
+                                </label>
+                                <select
+                                    id="speciality"
+                                    value={speciality}
+                                    onChange={(e) => setSpeciality(e.target.value)}
+                                    className="w-full h-14 px-4 text-lg border-border/50 bg-background/50 focus:bg-background rounded-xl transition-all outline-none"
+                                    required={role === 'doctor'}
+                                >
+                                    <option value="" disabled>Select your speciality</option>
+                                    {SPECIALITIES.map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
 
                         <div className="space-y-2">
                             <label htmlFor="email" className="block text-sm font-bold text-foreground/80 uppercase tracking-widest px-1">

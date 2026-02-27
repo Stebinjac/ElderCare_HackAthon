@@ -53,7 +53,8 @@ export default function PatientDoctorsPage() {
 
     const filteredDoctors = doctors.filter(d =>
         d.name.toLowerCase().includes(search.toLowerCase()) ||
-        d.email.toLowerCase().includes(search.toLowerCase())
+        d.email.toLowerCase().includes(search.toLowerCase()) ||
+        (d.speciality && d.speciality.toLowerCase().includes(search.toLowerCase()))
     );
 
     return (
@@ -101,7 +102,7 @@ export default function PatientDoctorsPage() {
                                 </div>
                                 <div className="space-y-2">
                                     <p className="text-xs font-black text-primary/50 uppercase tracking-tighter">Specialization</p>
-                                    <p className="text-sm font-bold text-foreground/80 italic">General Practitioner & Elder Care</p>
+                                    <p className="text-sm font-bold text-foreground/80 italic">{doctor.speciality || 'General Practice'}</p>
                                 </div>
                             </div>
 
@@ -109,7 +110,7 @@ export default function PatientDoctorsPage() {
                                 {doctor.requestStatus === 'accepted' ? (
                                     <div className="flex items-center gap-2 text-emerald-500 font-black uppercase text-sm bg-emerald-500/10 p-4 rounded-xl justify-center">
                                         <CheckCircle2 className="w-5 h-5" />
-                                        Your Primary Doctor
+                                        Connected Specialist
                                     </div>
                                 ) : doctor.requestStatus === 'pending' ? (
                                     <div className="flex items-center gap-2 text-primary/60 font-black uppercase text-sm bg-primary/5 p-4 rounded-xl justify-center animate-pulse">
