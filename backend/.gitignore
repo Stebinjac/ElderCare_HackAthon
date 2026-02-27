@@ -1,1 +1,4 @@
 .env
+/__pycache__
+agents/__pycache__
+venv/
