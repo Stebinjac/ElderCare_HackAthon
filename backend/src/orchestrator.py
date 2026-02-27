@@ -225,6 +225,7 @@ class AgentOrchestrator:
 
     async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
         """Execute a tool function by name."""
+        args = args or {}
         if tool_name == "get_health_summary":
             return await get_health_summary(self.supabase, patient_id)
         elif tool_name == "get_appointments":
