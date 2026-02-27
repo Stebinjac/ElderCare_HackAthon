@@ -41,6 +41,8 @@ class ChatRequest(BaseModel):
     message: str
     patient_id: str
     history: Optional[List[ChatMessage]] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 @app.get("/")
@@ -53,12 +55,26 @@ async def chat(req: ChatRequest):
     """Process a chat message through the AI agent."""
     try:
         history_dicts = [{"role": m.role, "content": m.content} for m in req.history] if req.history else []
-        result = await orchestrator.chat(req.patient_id, req.message, history_dicts)
+        result = await orchestrator.chat(req.patient_id, req.message, history_dicts, lat=req.lat, lng=req.lng)
         return result
     except Exception as e:
         print(f"[AgentCare] Error: {e}")
         import traceback
         traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class LocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+@app.post("/api/nearby-hospitals")
+async def nearby_hospitals(req: LocationRequest):
+    """Direct endpoint to fetch nearby hospitals."""
+    from agents.tools import find_nearest_hospital
+    try:
+        result = await find_nearest_hospital(latitude=req.latitude, longitude=req.longitude)
+        return result.get("hospitals", [])
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 

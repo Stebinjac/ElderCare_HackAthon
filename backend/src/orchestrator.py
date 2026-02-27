@@ -5,7 +5,7 @@ Uses Groq (LLaMA 3.3 70B) function-calling to interpret user messages and autono
 import os
 import json
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from groq import Groq
 from supabase import Client
@@ -25,7 +25,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_health_summary",
-            "description": "Get the patient's current health summary including latest vitals, medications, and profile info.",
+            "description": "Get the patient's health summary: latest vitals, medications, and profile.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -41,15 +41,15 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "book_appointment",
-            "description": "Book a new appointment with a doctor. Finds the assigned doctor automatically if not specified.",
+            "description": "Book a new appointment. Use logical defaults if specific details are missing.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "doctor_name": {"type": "string", "description": "Name of the doctor (optional, auto-selects if not given)"},
-                    "specialty": {"type": "string", "description": "Medical specialty needed. Allowed: 'Cardiology' (heart), 'Orthopedics' (bones/joints), 'Geriatrics' (elders), 'Neurology' (brain/nerves), 'Psychiatry' (mental health), 'General Practice' (general issues)."},
-                    "date": {"type": "string", "description": "Appointment date in YYYY-MM-DD format (optional, defaults to tomorrow)"},
-                    "time": {"type": "string", "description": "Appointment time in HH:MM format (optional, auto-selects first available)"},
-                    "reason": {"type": "string", "description": "Reason for the appointment"},
+                    "doctor_name": {"type": "string", "description": "Name of the doctor (optional)"},
+                    "specialty": {"type": "string", "description": "Medical specialty. Allowed: Cardiology, Orthopedics, Geriatrics, Neurology, Psychiatry, General Practice."},
+                    "date": {"type": "string", "description": "Date in YYYY-MM-DD format (defaults to tomorrow)"},
+                    "time": {"type": "string", "description": "Time in HH:MM format (defaults to 10:00 AM)"},
+                    "reason": {"type": "string", "description": "Reason for the visit"},
                 },
                 "required": [],
             },
@@ -59,11 +59,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_nearest_hospital",
-            "description": "Find the nearest hospitals to the patient using live map data. Returns hospital name, address, phone, and Google Maps link.",
+            "description": "Find nearest hospitals. Provide a city name if known; otherwise, it will use the user's current location.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "City name to search near (e.g. 'Kochi','Mumbai', 'New York',)"},
+                    "city": {"type": "string", "description": "City name to search in (optional)."},
                 },
                 "required": [],
             },
@@ -73,11 +73,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "send_emergency_alert",
-            "description": "Send an emergency SMS alert to the patient's registered guardian.",
+            "description": "Send an emergency SMS alert to the guardian.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "message": {"type": "string", "description": "Custom alert message (optional)"},
+                    "message": {"type": "string", "description": "Custom alert message."},
                 },
                 "required": [],
             },
@@ -93,31 +93,21 @@ TOOLS = [
     },
 ]
 
-SYSTEM_PROMPT = """You are AgentCare, an AI health assistant for elderly patients in the ElderCare platform.
+SYSTEM_PROMPT = """You are AgentCare, an AI assistant for elderly patients. 
+Your goal is to assist with health inquiries, book appointments, and handle emergencies.
 
-Your capabilities:
-- Fetch and explain health summaries (vitals, medications)
-- Book appointments with specific doctors or specialists (e.g., "Find a cardiologist")
-- Find nearest hospitals using live map data
-- Send emergency alerts to guardians via SMS
-- List upcoming appointments
-
-Rules:
-1. BE PROACTIVE: If the user mentions a problem, call the tool IMMEDIATELY. Do NOT ask "Can I book?" or "At what time?". Just do it using logical defaults.
-2. LOGICAL DEFAULTS: If date/time is not given, ALWAYS assume:
-   - Date: Tomorrow (or next available weekday)
-   - Time: 10:00 AM (or first available morning slot)
-   - Doctor: Search by specialty based on symptoms.
-3. SYMPTOM-TO-SPECIALTY MAPPING:
-   - "Heart", "Chest Pain", "Palpitations", "BP" -> Cardiology
-   - "Bones", "Fracture", "Joints", "Back pain", "Spine" -> Orthopedics
-   - "Headache", "Memory", "Nerves", "Stroke", "Dizziness" -> Neurology
-   - "Old age", "Weakness", "Falling", "Geriatric" -> Geriatrics
-   - "Anxiety", "Sadness", "Depression", "Sleep issues", "Mental" -> Psychiatry
-   - "Fever", "Cough", "General checkup", "Infection" -> General Practice
-4. NO BACK-QUESTIONING: Do not ask "at what time" or "which doctor". Pick the best specialist and the first available slot. Report the confirmation to the user.
-5. EMERGENCY: If it sounds life-threatening, call `find_nearest_hospital` AND `send_emergency_alert` FIRST, then report.
-6. CLARITY: After booking, say: "I've booked you a specialist for [Issue]. Doctor [Name] will see you tomorrow at [Time]."
+INSTRUCTIONS:
+1. Always use tools to take action. Do not just describe your intention.
+2. If symptoms are mentioned, map them to a specialty:
+   - Heart/BP -> Cardiology
+   - Bones/Joints/Back -> Orthopedics
+   - Head/Memory/Nerves -> Neurology
+   - Old age/Falling -> Geriatrics
+   - Mental health/Sleep -> Psychiatry
+   - Fever/General -> General Practice
+3. For appointments, if date/time is missing, assume Tomorrow at 10:00 AM.
+4. In an EMERGENCY, call BOTH `find_nearest_hospital` and `send_emergency_alert`.
+5. Be warm, reassuring, and concise.
 """
 
 
@@ -130,7 +120,7 @@ class AgentOrchestrator:
         self.client = Groq(api_key=api_key)
         self.model = "llama-3.3-70b-versatile"
 
-    async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str) -> Dict[str, Any]:
+    async def _execute_tool(self, tool_name: str, args: Dict[str, Any], patient_id: str, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
         """Execute a tool function by name."""
         if tool_name == "get_health_summary":
             return await get_health_summary(self.supabase, patient_id)
@@ -146,7 +136,12 @@ class AgentOrchestrator:
                 reason=args.get("reason"),
             )
         elif tool_name == "find_nearest_hospital":
-            return await find_nearest_hospital(patient_city=args.get("city"))
+            # Prefer coordinates from the request if available
+            return await find_nearest_hospital(
+                patient_city=args.get("city"),
+                latitude=lat or args.get("latitude"),
+                longitude=lng or args.get("longitude")
+            )
         elif tool_name == "send_emergency_alert":
             return await send_emergency_alert(self.supabase, patient_id, message=args.get("message"))
         elif tool_name == "get_medications":
@@ -154,7 +149,7 @@ class AgentOrchestrator:
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
-    async def chat(self, patient_id: str, message: str, history: List[Dict] = None) -> Dict[str, Any]:
+    async def chat(self, patient_id: str, message: str, history: List[Dict] = None, lat: Optional[float] = None, lng: Optional[float] = None) -> Dict[str, Any]:
         """Process a user chat message, execute any tool calls, and return the response."""
         actions_taken = []
 
@@ -214,7 +209,7 @@ class AgentOrchestrator:
 
                 print(f"[AgentCare] Executing tool: {tool_name}({tool_args})")
 
-                result = await self._execute_tool(tool_name, tool_args, patient_id)
+                result = await self._execute_tool(tool_name, tool_args, patient_id, lat=lat, lng=lng)
                 actions_taken.append({
                     "tool": tool_name,
                     "args": tool_args,
