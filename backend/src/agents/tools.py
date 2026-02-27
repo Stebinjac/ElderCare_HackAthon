@@ -134,47 +134,81 @@ async def book_appointment(
     return {"success": False, "error": "Failed to insert appointment."}
 
 
+import math
+
+def calculate_haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calculate the great-circle distance between two points in kilometers."""
+    R = 6371.0  # Earth's radius in km
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
 async def find_nearest_hospital(
     patient_city: Optional[str] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
 ) -> Dict[str, Any]:
-    if not latitude or not longitude:
-        city = patient_city or "New York"
+    """Find nearest hospitals using OpenStreetMap Nominatim + Overpass API."""
+    search_lat, search_lon = latitude, longitude
+    print(f"[AgentCare] find_nearest_hospital: Initial Lat/Lng: {latitude}/{longitude}, City: {patient_city}")
+
+    # If no coordinates, geocode the city
+    if search_lat is None or search_lon is None:
+        city = patient_city or "Kochi"
+        print(f"[AgentCare] find_nearest_hospital: Missing coordinates. Geocoding fallback city: {city}")
         async with httpx.AsyncClient() as client:
             geo_res = await client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": city, "format": "json", "limit": 1},
                 headers={"User-Agent": "ElderCare-Hackathon/1.0"},
+                timeout=10.0,
             )
             geo_data = geo_res.json()
             if geo_data:
-                latitude = float(geo_data[0]["lat"])
-                longitude = float(geo_data[0]["lon"])
+                search_lat = float(geo_data[0]["lat"])
+                search_lon = float(geo_data[0]["lon"])
+                print(f"[AgentCare] Resolved {city} to {search_lat}/{search_lon}")
             else:
                 return {"hospitals": [], "error": f"Could not geocode city: {city}"}
 
+    # Search hospitals via Overpass API (OpenStreetMap) within 5km
     overpass_query = f"""
-    [out:json][timeout:10];
+    [out:json][timeout:15];
     (
-      node["amenity"="hospital"](around:10000,{latitude},{longitude});
-      way["amenity"="hospital"](around:10000,{latitude},{longitude});
+      node["amenity"="hospital"](around:5000,{search_lat},{search_lon});
+      way["amenity"="hospital"](around:5000,{search_lat},{search_lon});
     );
-    out center 5;
+    out center;
     """
     async with httpx.AsyncClient() as client:
         res = await client.post(
             "https://overpass-api.de/api/interpreter",
             data={"data": overpass_query},
-            timeout=15.0,
+            timeout=20.0,
         )
-        data = res.json()
+        if res.status_code != 200:
+            print(f"[AgentCare] Overpass API Error: {res.status_code} - {res.text}")
+            return {"hospitals": [], "error": f"Hospital search API error: {res.status_code}"}
+        
+        try:
+            data = res.json()
+        except Exception as e:
+            print(f"[AgentCare] Overpass API JSON Error: {e}")
+            print(f"Response text: {res.text[:500]}")
+            return {"hospitals": [], "error": "Failed to parse hospital search results."}
 
     hospitals = []
-    for el in data.get("elements", [])[:5]:
+    for el in data.get("elements", []):
         tags = el.get("tags", {})
         lat = el.get("lat") or el.get("center", {}).get("lat")
         lon = el.get("lon") or el.get("center", {}).get("lon")
+        
+        distance = None
+        if search_lat is not None and search_lon is not None and lat and lon:
+            distance = calculate_haversine_distance(search_lat, search_lon, lat, lon)
+
         hospitals.append({
             "name": tags.get("name", "Unnamed Hospital"),
             "address": tags.get("addr:full") or tags.get("addr:street", "Address not available"),
@@ -182,10 +216,18 @@ async def find_nearest_hospital(
             "emergency": tags.get("emergency", "unknown"),
             "latitude": lat,
             "longitude": lon,
+            "distance": round(distance, 2) if distance is not None else None,
             "maps_link": f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else None,
         })
 
-    return {"hospitals": hospitals, "search_center": {"lat": latitude, "lon": longitude}, "count": len(hospitals)}
+    # Sort by distance
+    hospitals.sort(key=lambda x: x["distance"] if x["distance"] is not None else float('inf'))
+
+    return {
+        "hospitals": hospitals[:5], 
+        "search_center": {"lat": search_lat, "lon": search_lon}, 
+        "count": min(len(hospitals), 5)
+    }
 
 
 async def send_emergency_alert(supabase: Client, patient_id: str, message: Optional[str] = None) -> Dict[str, Any]:

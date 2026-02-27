@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-        const { message, history } = await request.json();
+        const { message, history, lat, lng } = await request.json();
 
         const res = await fetch('http://localhost:8000/chat', {
             method: 'POST',
@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
                 message,
                 patient_id: user.userId,
                 history: history || [],
+                lat,
+                lng,
             }),
         });
 
