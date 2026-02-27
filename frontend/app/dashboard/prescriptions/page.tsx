@@ -51,8 +51,13 @@ export default function PatientPrescriptionsPage() {
                                     </div>
                                     <div className="space-y-1">
                                         <h3 className="text-3xl font-black text-foreground tracking-tight">{p.medication}</h3>
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 flex-wrap">
                                             <span className="px-3 py-1 bg-accent/10 text-accent text-xs font-black uppercase tracking-widest rounded-lg">{p.dosage}</span>
+                                            {p.prescribed_days && (
+                                                <span className="px-3 py-1 bg-primary/10 text-primary text-xs font-black uppercase tracking-widest rounded-lg">
+                                                    {p.prescribed_days} days
+                                                </span>
+                                            )}
                                             <span className="text-sm font-bold text-muted-foreground italic flex items-center gap-1.5">
                                                 <Calendar className="w-4 h-4" />
                                                 Prescribed on {new Date(p.created_at).toLocaleDateString()}

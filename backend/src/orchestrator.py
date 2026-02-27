@@ -139,6 +139,10 @@ You have access to the user's live location. ALWAYS prioritize finding doctors a
 1. PHASE 1 (Intake): Ask ONE clarifying question about symptoms.
 2. PHASE 2 (Booking): Call `get_available_doctors` first, then `book_appointment` with the best match.
 
+## MEDICATION REFILLS
+- If a patient asks about medication refills or running low on medicine, kindly tell them to visit the 'Refills' page in their dashboard.
+- You can check their current medications with `get_medications` and let them know which ones might be running low.
+
 ## EMERGENCY & SAFETY
 - For physical emergencies (chest pain, falls, etc.), call `find_nearest_hospital` and `send_emergency_alert`.
 - STAY CALM: Focus on physical health and logistics. Avoid language that sounds like a psychiatric crisis unless the user specifically mentions self-harm.
@@ -272,7 +276,7 @@ class AgentOrchestrator:
             system_prompt = SYSTEM_PROMPT
 
         # ── Build message history ──────────────────────────────────────────────
-        messages = [{"role": "system", "content": system_prompt}]
+        messages = [{"role": "system", "content": system_prompt + med_context}]
         for msg in history:
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({"role": "user", "content": message})
