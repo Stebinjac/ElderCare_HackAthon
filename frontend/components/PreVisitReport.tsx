@@ -15,8 +15,25 @@ export default function PreVisitReport({ report, compact = false }: PreVisitRepo
 
     // Parse markdown sections for nice rendering
     const renderMarkdown = (text: string) => {
+        let isEvalSection = false;
+
         return text.split('\n').map((line, i) => {
+            if (line.includes('## AI Interview Evaluation')) {
+                isEvalSection = true;
+                return (
+                    <div key={i} className="mt-8 pt-6 border-t-2 border-dashed border-border">
+                        <h2 className="text-xl font-black text-amber-600 tracking-tight mb-2 flex items-center gap-2">
+                            <span className="p-1.5 rounded-lg bg-amber-500/10">
+                                <FileText className="w-5 h-5 text-amber-600" />
+                            </span>
+                            AI Self-Evaluation & Insights
+                        </h2>
+                    </div>
+                );
+            }
+
             if (line.startsWith('## ')) {
+                isEvalSection = false;
                 return (
                     <h2 key={i} className="text-xl font-black text-foreground tracking-tight mt-4 mb-2 flex items-center gap-2">
                         <FileText className="w-5 h-5 text-primary" />
@@ -25,27 +42,32 @@ export default function PreVisitReport({ report, compact = false }: PreVisitRepo
                 );
             }
             if (line.startsWith('### ')) {
+                const title = line.replace('### ', '');
+                const isQualityHeader = title.includes('Quality') || title.includes('Self-Evaluation');
                 return (
-                    <h3 key={i} className="text-sm font-black uppercase tracking-widest text-primary/70 mt-4 mb-1.5">
-                        {line.replace('### ', '')}
+                    <h3 key={i} className={`text-sm font-black uppercase tracking-widest mt-6 mb-2 ${isEvalSection
+                            ? isQualityHeader ? 'text-blue-600' : 'text-amber-600'
+                            : 'text-primary/70'
+                        }`}>
+                        {title}
                     </h3>
                 );
             }
             if (line.startsWith('**') && line.includes(':**')) {
                 const [label, ...rest] = line.split(':**');
                 return (
-                    <p key={i} className="text-sm leading-relaxed">
+                    <p key={i} className="text-sm leading-relaxed mb-1">
                         <span className="font-bold text-foreground">{label.replace(/\*\*/g, '')}:</span>
                         <span className="text-muted-foreground">{rest.join(':**').replace(/\*\*/g, '')}</span>
                     </p>
                 );
             }
-            if (line.startsWith('- **')) {
-                const cleaned = line.replace(/^- /, '').replace(/\*\*/g, '');
+            if (line.startsWith('- **') || line.startsWith('* **')) {
+                const cleaned = line.replace(/^[-*] /, '').replace(/\*\*/g, '');
                 const [label, ...rest] = cleaned.split(':');
                 return (
-                    <div key={i} className="flex items-start gap-2 py-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary mt-2 shrink-0" />
+                    <div key={i} className="flex items-start gap-2 py-1">
+                        <span className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${isEvalSection ? 'bg-amber-500' : 'bg-primary'}`} />
                         <p className="text-sm">
                             <span className="font-bold text-foreground">{label}:</span>
                             <span className="text-muted-foreground">{rest.join(':')}</span>
@@ -53,16 +75,22 @@ export default function PreVisitReport({ report, compact = false }: PreVisitRepo
                     </div>
                 );
             }
-            if (line.startsWith('- ')) {
+            if (line.startsWith('- ') || line.startsWith('* ')) {
                 return (
-                    <div key={i} className="flex items-start gap-2 py-0.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-primary/50 mt-2 shrink-0" />
-                        <p className="text-sm text-muted-foreground">{line.replace('- ', '')}</p>
+                    <div key={i} className="flex items-start gap-2 py-1">
+                        <span className={`w-1.5 h-1.5 rounded-full mt-2 shrink-0 ${isEvalSection ? 'bg-amber-500/50' : 'bg-primary/50'}`} />
+                        <p className="text-sm text-muted-foreground">{line.replace(/^[-*] /, '').replace(/\*\*/g, '')}</p>
                     </div>
                 );
             }
-            if (line.trim() === '') return <div key={i} className="h-1" />;
-            return <p key={i} className="text-sm text-muted-foreground leading-relaxed">{line}</p>;
+            if (line.startsWith('---')) return null;
+            if (line.trim() === '') return <div key={i} className="h-2" />;
+
+            return (
+                <p key={i} className={`text-sm leading-relaxed ${isEvalSection ? 'text-amber-700/80 italic bg-amber-500/5 p-3 rounded-lg border border-amber-500/10' : 'text-muted-foreground'}`}>
+                    {line}
+                </p>
+            );
         });
     };
 

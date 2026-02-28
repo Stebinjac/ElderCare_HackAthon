@@ -83,50 +83,42 @@ async def nearby_hospitals(req: LocationRequest):
 
 # ── Pre-Visit Endpoints ────────────────────────────────────────────────────────
 
-class PreVisitQuestionsRequest(BaseModel):
+class PreVisitInterviewRequest(BaseModel):
     appointment_id: str
     appointment_reason: str
     patient_id: str
+    chat_history: List[Dict[str, str]]
 
-@app.post("/api/previsit/generate-questions")
-async def generate_previsit_questions(req: PreVisitQuestionsRequest):
-    """Generate pre-visit screening questions after an appointment is booked."""
+@app.post("/api/previsit/interview-turn")
+async def previsit_interview_turn(req: PreVisitInterviewRequest):
+    """Process a turn in the pre-visit interview. Generates next question AND live report draft."""
     try:
-        questions = previsit_agent.generate_questions(req.appointment_reason, req.patient_id)
-        # Mark the appointment as having a pending pre-visit
-        try:
-            supabase.table("appointments").update(
-                {"pre_visit_status": "pending"}
-            ).eq("id", req.appointment_id).execute()
-        except Exception:
-            pass  # Non-critical — columns might not exist yet
-        return {"questions": questions}
-    except Exception as e:
-        print(f"[PreVisit] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-class PreVisitAnswersRequest(BaseModel):
-    appointment_id: str
-    patient_id: str
-    appointment_reason: str
-    questions: List[str]
-    answers: List[str]
-
-@app.post("/api/previsit/submit-answers")
-async def submit_previsit_answers(req: PreVisitAnswersRequest):
-    """Process patient answers and generate the pre-visit report."""
-    try:
+        # 1. Get the next question (or conclude)
+        turn_result = previsit_agent.conduct_interview_turn(
+            appointment_reason=req.appointment_reason,
+            patient_id=req.patient_id,
+            chat_history=req.chat_history
+        )
+        
+        # 2. Generate the live report draft
+        # If the interview is complete, passing is_final=True saves it as 'completed'
         report = previsit_agent.generate_report(
             appointment_id=req.appointment_id,
             patient_id=req.patient_id,
             appointment_reason=req.appointment_reason,
-            questions=req.questions,
-            answers=req.answers,
+            chat_history=req.chat_history,
+            is_final=turn_result["is_complete"]
         )
-        return {"report": report, "status": "completed"}
+        
+        return {
+            "next_question": turn_result["next_question"],
+            "is_complete": turn_result["is_complete"],
+            "live_report": report
+        }
     except Exception as e:
-        print(f"[PreVisit] Report error: {e}")
+        print(f"[PreVisit] Error in interview turn: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

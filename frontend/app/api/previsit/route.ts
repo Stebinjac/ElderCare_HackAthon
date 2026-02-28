@@ -14,11 +14,8 @@ export async function POST(request: NextRequest) {
         const { action, ...payload } = body;
 
         let endpoint = '';
-        if (action === 'generate-questions') {
-            endpoint = '/api/previsit/generate-questions';
-            payload.patient_id = user.userId;
-        } else if (action === 'submit-answers') {
-            endpoint = '/api/previsit/submit-answers';
+        if (action === 'interview-turn') {
+            endpoint = '/api/previsit/interview-turn';
             payload.patient_id = user.userId;
         } else {
             return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

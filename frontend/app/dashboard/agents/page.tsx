@@ -43,11 +43,10 @@ interface PreVisitState {
     active: boolean;
     appointmentId: string;
     appointmentReason: string;
-    questions: string[];
-    answers: string[];
-    currentIndex: number;
+    chatHistory: { role: 'user' | 'assistant', content: string }[];
     isGenerating: boolean;
     isSubmitting: boolean;
+    isComplete: boolean;
     report: string | null;
 }
 
@@ -154,11 +153,10 @@ export default function AgentCarePage() {
         active: false,
         appointmentId: '',
         appointmentReason: '',
-        questions: [],
-        answers: [],
-        currentIndex: 0,
+        chatHistory: [],
         isGenerating: false,
         isSubmitting: false,
+        isComplete: false,
         report: null,
     });
 
@@ -415,71 +413,91 @@ export default function AgentCarePage() {
 
     // ── Pre-Visit Questionnaire Logic ──────────────────────────────
     const triggerPreVisit = async (appointmentId: string, reason: string) => {
-        setPreVisit(prev => ({ ...prev, active: true, appointmentId, appointmentReason: reason, isGenerating: true }));
+        setPreVisit(prev => ({ ...prev, active: true, appointmentId, appointmentReason: reason, isGenerating: true, chatHistory: [], report: null, isComplete: false }));
         try {
             const res = await fetch('/api/previsit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'generate-questions',
+                    action: 'interview-turn',
                     appointment_id: appointmentId,
                     appointment_reason: reason,
+                    chat_history: []
                 }),
             });
             const data = await res.json();
-            if (data.questions) {
-                setPreVisit(prev => ({ ...prev, questions: data.questions, isGenerating: false }));
+            if (data.next_question) {
+                setPreVisit(prev => ({
+                    ...prev,
+                    chatHistory: [{ role: 'assistant', content: data.next_question }],
+                    report: data.live_report || null,
+                    isComplete: !!data.is_complete,
+                    isGenerating: false
+                }));
             }
         } catch (err) {
-            console.error('[PreVisit] Failed to generate questions:', err);
+            console.error('[PreVisit] Failed to initiate interview:', err);
             setPreVisit(prev => ({ ...prev, isGenerating: false, active: false }));
         }
     };
 
     const [preVisitInput, setPreVisitInput] = useState('');
+    const interviewEndRef = useRef<HTMLDivElement>(null);
 
-    const handlePreVisitAnswer = () => {
+    useEffect(() => {
+        if (preVisit.active && interviewEndRef.current) {
+            interviewEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [preVisit.chatHistory]);
+
+    const handlePreVisitAnswer = async () => {
         const answer = preVisitInput.trim();
-        if (!answer) return;
+        if (!answer || preVisit.isSubmitting) return;
 
-        const newAnswers = [...preVisit.answers, answer];
-        const nextIndex = preVisit.currentIndex + 1;
         setPreVisitInput('');
 
-        if (nextIndex >= preVisit.questions.length) {
-            // All questions answered → submit
-            setPreVisit(prev => ({ ...prev, answers: newAnswers, currentIndex: nextIndex }));
-            submitPreVisitAnswers(newAnswers);
-        } else {
-            setPreVisit(prev => ({ ...prev, answers: newAnswers, currentIndex: nextIndex }));
-        }
-    };
+        // Optimistically add user answer to history
+        const updatedHistory: { role: 'user' | 'assistant', content: string }[] = [
+            ...preVisit.chatHistory,
+            { role: 'user', content: answer }
+        ];
 
-    const submitPreVisitAnswers = async (answers: string[]) => {
-        setPreVisit(prev => ({ ...prev, isSubmitting: true }));
+        setPreVisit(prev => ({ ...prev, chatHistory: updatedHistory, isSubmitting: true }));
+
         try {
             const res = await fetch('/api/previsit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    action: 'submit-answers',
+                    action: 'interview-turn',
                     appointment_id: preVisit.appointmentId,
                     appointment_reason: preVisit.appointmentReason,
-                    questions: preVisit.questions,
-                    answers,
+                    chat_history: updatedHistory,
                 }),
             });
             const data = await res.json();
-            if (data.report) {
-                setPreVisit(prev => ({ ...prev, report: data.report, isSubmitting: false }));
-                // Add a system message about the report
+
+            const nextHistory = [...updatedHistory];
+            if (data.next_question) {
+                nextHistory.push({ role: 'assistant', content: data.next_question });
+            }
+
+            setPreVisit(prev => ({
+                ...prev,
+                chatHistory: nextHistory,
+                report: data.live_report,
+                isComplete: data.is_complete,
+                isSubmitting: false
+            }));
+
+            if (data.is_complete) {
                 setMessages(prev => [...prev, {
                     role: 'assistant',
-                    content: '✅ Your Pre-Visit Report has been generated and sent to your doctor. They will review it before your appointment.',
+                    content: '✅ Your Pre-Visit Report has been completed and sent to your doctor. They will review it before your appointment.',
                 }]);
             }
         } catch (err) {
-            console.error('[PreVisit] Failed to submit answers:', err);
+            console.error('[PreVisit] Failed to process interview turn:', err);
             setPreVisit(prev => ({ ...prev, isSubmitting: false }));
         }
     };
@@ -563,98 +581,127 @@ export default function AgentCarePage() {
                     </div>
                 )}
 
-                {/* Pre-Visit Questionnaire Card */}
-                {preVisit.active && !preVisit.report && (
-                    <div className="flex gap-3">
-                        <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center mt-1">
-                            <FileText className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="max-w-[85%] bg-card border-2 border-emerald-500/30 rounded-2xl rounded-bl-md px-5 py-4 shadow-lg">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="text-xs font-black uppercase tracking-widest text-emerald-600">Appoint-Ready</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 font-bold">PRE-VISIT</span>
-                            </div>
-
-                            {preVisit.isGenerating ? (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
-                                    <span>Preparing your pre-visit questionnaire...</span>
+                {/* Pre-Visit Dashboard UI */}
+                {preVisit.active && (
+                    <div className="mt-6 border-t-2 border-emerald-500/20 pt-6">
+                        <div className="flex items-center justify-between mb-4 px-2">
+                            <div className="flex items-center gap-2">
+                                <div className="p-2 rounded-lg bg-emerald-500/10">
+                                    <Stethoscope className="w-5 h-5 text-emerald-600" />
                                 </div>
-                            ) : preVisit.isSubmitting ? (
-                                <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                    <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
-                                    <span>Generating your pre-visit report for the doctor...</span>
-                                </div>
-                            ) : preVisit.currentIndex < preVisit.questions.length ? (
                                 <div>
-                                    {/* Progress bar */}
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                                                style={{ width: `${(preVisit.currentIndex / preVisit.questions.length) * 100}%` }}
-                                            />
-                                        </div>
-                                        <span className="text-[10px] font-bold text-muted-foreground">
-                                            {preVisit.currentIndex + 1}/{preVisit.questions.length}
-                                        </span>
-                                    </div>
-
-                                    {/* Previous answers */}
-                                    {preVisit.answers.length > 0 && (
-                                        <div className="mb-3 space-y-1.5">
-                                            {preVisit.answers.map((a, i) => (
-                                                <div key={i} className="text-xs text-muted-foreground">
-                                                    <span className="font-bold">Q{i + 1}:</span> {preVisit.questions[i]}
-                                                    <br />
-                                                    <span className="text-emerald-600 font-medium">→ {a}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Current question */}
-                                    <p className="text-sm font-bold text-foreground mb-3">
-                                        {preVisit.questions[preVisit.currentIndex]}
+                                    <h3 className="text-lg font-bold text-foreground">Appoint-Ready Pre-Visit</h3>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-widest font-bold text-emerald-600">
+                                        For: {preVisit.appointmentReason}
                                     </p>
-
-                                    {/* Answer input */}
-                                    <form onSubmit={(e) => { e.preventDefault(); handlePreVisitAnswer(); }} className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={preVisitInput}
-                                            onChange={(e) => setPreVisitInput(e.target.value)}
-                                            placeholder="Type your answer..."
-                                            autoFocus
-                                            className="flex-1 h-10 px-3 rounded-lg bg-secondary/50 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm"
-                                        />
-                                        <Button
-                                            type="submit"
-                                            disabled={!preVisitInput.trim()}
-                                            className="h-10 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold"
-                                        >
-                                            Next
-                                        </Button>
-                                    </form>
                                 </div>
-                            ) : (
-                                <div className="flex items-center gap-2 text-sm text-emerald-600">
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    <span className="font-bold">All questions answered! Generating report...</span>
-                                </div>
+                            </div>
+                            {preVisit.isComplete && (
+                                <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold uppercase flex items-center gap-1 border border-emerald-200">
+                                    <CheckCircle2 className="w-4 h-4" /> Completed
+                                </span>
                             )}
                         </div>
-                    </div>
-                )}
 
-                {/* Pre-Visit Report Display */}
-                {preVisit.report && (
-                    <div className="flex gap-3">
-                        <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center mt-1">
-                            <FileText className="w-4 h-4 text-emerald-600" />
-                        </div>
-                        <div className="max-w-[85%]">
-                            <PreVisitReport report={preVisit.report} compact={false} />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[500px]">
+                            {/* Left Pane: Simulated Interview */}
+                            <div className="bg-card border border-border rounded-xl flex flex-col shadow-sm overflow-hidden">
+                                <div className="bg-emerald-500/5 px-4 py-3 border-b border-border flex items-center justify-between">
+                                    <h4 className="font-bold text-foreground flex items-center gap-2">
+                                        <Bot className="w-4 h-4 text-emerald-600" />
+                                        Simulated Interview
+                                    </h4>
+                                    {preVisit.isGenerating && (
+                                        <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                                    )}
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                    {preVisit.chatHistory.length === 0 && preVisit.isGenerating && (
+                                        <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-2">
+                                            <Loader2 className="w-8 h-8 animate-spin text-emerald-500/50" />
+                                            <p className="text-sm font-medium">Preparing interview questions...</p>
+                                        </div>
+                                    )}
+                                    {preVisit.chatHistory.map((msg, i) => (
+                                        <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                            {msg.role === 'assistant' && (
+                                                <div className="shrink-0 w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center mt-1">
+                                                    <Stethoscope className="w-4 h-4 text-emerald-600" />
+                                                </div>
+                                            )}
+                                            <div className={`max-w-[85%] text-sm px-4 py-3 ${msg.role === 'user'
+                                                    ? 'bg-primary/10 text-foreground rounded-2xl rounded-br-md border border-primary/20'
+                                                    : 'bg-emerald-500/10 text-foreground border border-emerald-500/20 rounded-2xl rounded-bl-md'
+                                                }`}>
+                                                {msg.content}
+                                            </div>
+                                            {msg.role === 'user' && (
+                                                <div className="shrink-0 w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center mt-1">
+                                                    <User className="w-4 h-4 text-primary" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {preVisit.isSubmitting && !preVisit.isComplete && (
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground ml-11">
+                                            <Loader2 className="w-3 h-3 animate-spin text-emerald-500" /> AI is drafting the report and next question...
+                                        </div>
+                                    )}
+                                    <div ref={interviewEndRef} />
+                                </div>
+
+                                {/* Interview Input */}
+                                {!preVisit.isComplete && !preVisit.isGenerating && (
+                                    <div className="p-3 border-t border-border bg-card">
+                                        <form onSubmit={(e) => { e.preventDefault(); handlePreVisitAnswer(); }} className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={preVisitInput}
+                                                onChange={(e) => setPreVisitInput(e.target.value)}
+                                                placeholder="Type your answer..."
+                                                disabled={preVisit.isSubmitting}
+                                                className="flex-1 h-10 px-3 rounded-lg bg-secondary/50 border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/50 text-sm disabled:opacity-50"
+                                            />
+                                            <Button
+                                                type="submit"
+                                                disabled={!preVisitInput.trim() || preVisit.isSubmitting}
+                                                className="h-10 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm"
+                                            >
+                                                Send
+                                            </Button>
+                                        </form>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Right Pane: Live Generated Report */}
+                            <div className="bg-card border border-border rounded-xl flex flex-col shadow-sm overflow-hidden">
+                                <div className="bg-secondary/30 px-4 py-3 border-b border-border flex items-center justify-between">
+                                    <h4 className="font-bold text-foreground flex items-center gap-2">
+                                        <FileText className="w-4 h-4 text-muted-foreground" />
+                                        Generated Report
+                                    </h4>
+                                    {preVisit.report && !preVisit.isComplete && (
+                                        <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 uppercase">
+                                            <span className="relative flex h-2 w-2">
+                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                            </span>
+                                            Live Updating
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 bg-muted/20">
+                                    {preVisit.report ? (
+                                        <PreVisitReport report={preVisit.report} compact={false} />
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground space-y-4 px-6 opacity-60">
+                                            <FileText className="w-12 h-12 text-muted-foreground/30" />
+                                            <p className="text-sm">The report will appear here and update live as you chart your symptoms.</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

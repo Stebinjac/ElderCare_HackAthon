@@ -43,11 +43,18 @@ class PreVisitAgent:
             "recent_reports": reports,
         }
 
-    def generate_questions(self, appointment_reason: str, patient_id: str) -> List[str]:
-        """Generate 4-5 targeted pre-visit questions based on the appointment reason and patient history."""
+    def conduct_interview_turn(self, appointment_reason: str, patient_id: str, chat_history: List[Dict[str, str]]) -> Dict[str, Any]:
+        """Process the chat history and generate the next symptom question, or conclude the interview."""
         context = self._get_patient_context(patient_id)
+        
+        # Count how many questions the assistant has asked so far
+        assistant_questions = sum(1 for m in chat_history if m["role"] == "assistant")
+        
+        if assistant_questions >= 5:
+            return {"next_question": None, "is_complete": True}
 
-        prompt = f"""You are a medical intake assistant. A patient has booked an appointment for: "{appointment_reason}".
+        system_prompt = f"""You are a medical intake assistant conducting a pre-visit interview.
+A patient has booked an appointment for: "{appointment_reason}".
 
 Patient context:
 - Name: {context['patient_name']}
@@ -55,62 +62,57 @@ Patient context:
 - Current medications: {json.dumps(context['medications'], default=str) if context['medications'] else 'None on file'}
 - Latest vitals: {json.dumps(context['vitals'][0], default=str) if context['vitals'] else 'None on file'}
 
-Generate exactly 5 short, clear pre-visit screening questions. These should help the doctor prepare for the visit.
+Your goal is to ask 1 targeted screening question at a time to help the doctor prepare.
+You have asked {assistant_questions} out of a maximum of 5 questions.
 
 Rules:
-- Keep questions SHORT (1 sentence each) and easy for elderly patients to understand
-- Ask about: duration of symptoms, severity (1-10), any triggers, relevant medical history, and current self-care
-- DO NOT ask about things already known (medications listed above)
-- Return ONLY a JSON array of 5 strings, nothing else
+1. Ask exactly ONE short, clear question directly related to the appointment reason or their previous answers.
+2. Build upon their answers. Do not repeat questions.
+3. If they have fully explained their symptoms before 5 questions, you can output exactly "INTERVIEW_COMPLETE".
+4. Keep the question under 2 sentences.
 
-Example output:
-["How long have you been experiencing this issue?", "On a scale of 1-10, how severe is the discomfort?", "Does anything make it better or worse?", "Have you had this issue before?", "Are you currently doing anything to manage it?"]"""
+Output ONLY your response text and nothing else."""
 
+        messages = [{"role": "system", "content": system_prompt}]
+        for msg in chat_history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+            
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
+                messages=messages,
+                max_tokens=200,
                 temperature=0.3,
             )
             content = response.choices[0].message.content.strip()
-
-            # Parse the JSON array from the response
-            # Handle cases where LLM wraps it in markdown code blocks
-            if "```" in content:
-                content = content.split("```")[1]
-                if content.startswith("json"):
-                    content = content[4:]
-                content = content.strip()
-
-            questions = json.loads(content)
-            if isinstance(questions, list) and len(questions) > 0:
-                return questions[:5]
+            
+            if "INTERVIEW_COMPLETE" in content or assistant_questions >= 5:
+                return {"next_question": None, "is_complete": True}
+                
+            return {"next_question": content, "is_complete": False}
+            
         except Exception as e:
-            print(f"[PreVisit] Error generating questions: {e}")
-
-        # Fallback questions
-        return [
-            "How long have you been experiencing these symptoms?",
-            "On a scale of 1 to 10, how would you rate the discomfort?",
-            "Is there anything that makes it better or worse?",
-            "Have you experienced this issue before?",
-            "Is there anything else you'd like the doctor to know?",
-        ]
+            print(f"[PreVisit] Error generating next question: {e}")
+            return {"next_question": "Could you tell me anything else about how you're feeling?", "is_complete": assistant_questions >= 4}
 
     def generate_report(
         self, appointment_id: str, patient_id: str, appointment_reason: str,
-        questions: List[str], answers: List[str],
+        chat_history: List[Dict[str, str]], is_final: bool = False
     ) -> str:
-        """Generate a structured Pre-Visit Report and save it to the appointment."""
+        """Generate a structured Pre-Visit Report based on chat history, including AI Self-Evaluation."""
+        if not chat_history:
+            return ""
+            
         context = self._get_patient_context(patient_id)
 
-        # Build Q&A section
-        qa_text = "\n".join(
-            f"Q: {q}\nA: {a}" for q, a in zip(questions, answers)
-        )
+        # Build Q&A transcript
+        transcript = ""
+        for msg in chat_history:
+            speaker = "Assistant" if msg["role"] == "assistant" else "Patient"
+            transcript += f"**{speaker}:** {msg['content']}\n\n"
 
-        prompt = f"""You are a medical documentation assistant. Generate a concise, structured Pre-Visit Report for a doctor.
+        prompt = f"""You are a medical documentation assistant evaluating a simulated interview between an AI assistant and a patient.
+Generate a concise, structured Pre-Visit Report for the doctor, and provide a self-evaluation of the AI's performance.
 
 APPOINTMENT REASON: {appointment_reason}
 
@@ -121,37 +123,32 @@ PATIENT CONTEXT:
 - Latest Vitals: {json.dumps(context['vitals'][0], default=str) if context['vitals'] else 'Not available'}
 - Recent Medical Reports: {json.dumps([r.get('title','') + ': ' + r.get('summary','')[:100] for r in context['recent_reports']], default=str) if context['recent_reports'] else 'None'}
 
-PATIENT QUESTIONNAIRE RESPONSES:
-{qa_text}
+INTERVIEW TRANSCRIPT:
+{transcript}
 
-Generate a structured report using this EXACT format (use markdown):
+Generate a structured report using exactly this markdown structure:
 
-## Pre-Visit Report
+## Preliminary Health Report
+**Patient:** {context['patient_name']}
+**Visit Reason:** {appointment_reason}
 
-**Patient:** [name]
-**Visit Reason:** [reason]
-**Report Date:** [today's date]
+### History of Present Illness (HPI)
+[Synthesize the patient's symptoms, duration, triggers, and severity into 1-2 professional sentences.]
 
-### Chief Complaint
-[1-2 sentence summary of why the patient is visiting]
+### Relevant Medical History (from EHR)
+[List any relevant conditions or note 'None on file']
 
-### Symptom Assessment
-- **Duration:** [from answers]
-- **Severity:** [from answers, e.g. 7/10]
-- **Triggers/Patterns:** [from answers]
-- **Previous Occurrence:** [from answers]
+### Medications (from EHR and interview)
+[List medications in context]
 
-### Current Health Snapshot
-- **Medications:** [list current meds]
-- **Latest Vitals:** [BP, HR, SpO2 if available]
+---
 
-### Patient's Additional Notes
-[anything else they mentioned]
+## AI Interview Evaluation
+### Clinical Insights Extracted
+[What key pieces of information did the AI successfully uncover that will help the doctor?]
 
-### Key Flags for Doctor
-[2-3 bullet points highlighting what the doctor should pay attention to based on ALL the data]
-
-Keep it concise and professional. No unnecessary verbosity."""
+### AI Self-Evaluation (Quality & Opportunities)
+[Provide a frank, 2-3 bullet point evaluation of the AI's interviewing skills. Note strengths (e.g., "effectively narrowed down the timeline") and missed opportunities (e.g., "failed to ask about radiating pain", "question was too broad", "did not ask for pain scale").]"""
 
         try:
             response = self.client.chat.completions.create(
@@ -163,13 +160,15 @@ Keep it concise and professional. No unnecessary verbosity."""
             report = response.choices[0].message.content.strip()
         except Exception as e:
             print(f"[PreVisit] Error generating report: {e}")
-            report = self._fallback_report(context, appointment_reason, questions, answers)
+            report = self._fallback_report(context, appointment_reason, transcript)
 
         # Save report to the appointment
         try:
+            # If it's a live update, we might set status to 'draft'. If final, 'completed'.
+            status = "completed" if is_final else "draft"
             self.supabase.table("appointments").update({
                 "pre_visit_report": report,
-                "pre_visit_status": "completed",
+                "pre_visit_status": status,
             }).eq("id", appointment_id).execute()
             print(f"[PreVisit] Report saved for appointment {appointment_id}")
         except Exception as e:
@@ -178,22 +177,24 @@ Keep it concise and professional. No unnecessary verbosity."""
         return report
 
     def _fallback_report(
-        self, context: Dict, reason: str, questions: List[str], answers: List[str]
+        self, context: Dict, reason: str, transcript: str
     ) -> str:
         """Generate a basic report without LLM if API fails."""
-        qa = "\n".join(f"- **Q:** {q}\n  **A:** {a}" for q, a in zip(questions, answers))
         meds = ", ".join(m["name"] for m in context.get("medications", [])) or "None"
 
-        return f"""## Pre-Visit Report
+        return f"""## Preliminary Health Report
 
 **Patient:** {context.get('patient_name', 'Unknown')}
 **Visit Reason:** {reason}
 
-### Questionnaire Responses
-{qa}
+### Interview Transcript
+{transcript}
 
 ### Current Medications
 {meds}
 
-### Note
-This is an auto-generated summary. Please review the patient's full records for additional context."""
+---
+
+## AI Interview Evaluation
+**Status:** AI Evaluation Unavailable (API Error)
+"""
