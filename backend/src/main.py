@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict
 
 from orchestrator import AgentOrchestrator
+from agents.previsit_agent import PreVisitAgent
 
 load_dotenv()
 
@@ -30,6 +31,7 @@ supabase_key = os.environ.get("SUPABASE_KEY")
 supabase: Client = create_client(supabase_url, supabase_key)
 
 orchestrator = AgentOrchestrator(supabase)
+previsit_agent = PreVisitAgent(supabase)
 
 
 class ChatMessage(BaseModel):
@@ -75,6 +77,71 @@ async def nearby_hospitals(req: LocationRequest):
     try:
         result = await find_nearest_hospital(latitude=req.latitude, longitude=req.longitude)
         return result.get("hospitals", [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Pre-Visit Endpoints ────────────────────────────────────────────────────────
+
+class PreVisitQuestionsRequest(BaseModel):
+    appointment_id: str
+    appointment_reason: str
+    patient_id: str
+
+@app.post("/api/previsit/generate-questions")
+async def generate_previsit_questions(req: PreVisitQuestionsRequest):
+    """Generate pre-visit screening questions after an appointment is booked."""
+    try:
+        questions = previsit_agent.generate_questions(req.appointment_reason, req.patient_id)
+        # Mark the appointment as having a pending pre-visit
+        try:
+            supabase.table("appointments").update(
+                {"pre_visit_status": "pending"}
+            ).eq("id", req.appointment_id).execute()
+        except Exception:
+            pass  # Non-critical — columns might not exist yet
+        return {"questions": questions}
+    except Exception as e:
+        print(f"[PreVisit] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PreVisitAnswersRequest(BaseModel):
+    appointment_id: str
+    patient_id: str
+    appointment_reason: str
+    questions: List[str]
+    answers: List[str]
+
+@app.post("/api/previsit/submit-answers")
+async def submit_previsit_answers(req: PreVisitAnswersRequest):
+    """Process patient answers and generate the pre-visit report."""
+    try:
+        report = previsit_agent.generate_report(
+            appointment_id=req.appointment_id,
+            patient_id=req.patient_id,
+            appointment_reason=req.appointment_reason,
+            questions=req.questions,
+            answers=req.answers,
+        )
+        return {"report": report, "status": "completed"}
+    except Exception as e:
+        print(f"[PreVisit] Report error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/previsit/report/{appointment_id}")
+async def get_previsit_report(appointment_id: str):
+    """Fetch the pre-visit report for a specific appointment."""
+    try:
+        res = supabase.table("appointments").select(
+            "pre_visit_report, pre_visit_status"
+        ).eq("id", appointment_id).execute()
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return res.data[0]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/card';
-import { Calendar, Clock, User, CheckCircle2, XCircle, Loader2, AlertCircle, MapPin, ChevronRight } from 'lucide-react';
+import { Calendar, Clock, User, CheckCircle2, XCircle, Loader2, AlertCircle, MapPin, ChevronRight, FileText, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import PreVisitReport from '@/components/PreVisitReport';
 
 export default function DoctorAppointmentsPage() {
     const [appointments, setAppointments] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [filter, setFilter] = useState<'all' | 'pending' | 'accepted'>('all');
+    const [expandedReports, setExpandedReports] = useState<Set<string>>(new Set());
 
     const fetchAppointments = async () => {
         try {
@@ -59,6 +61,14 @@ export default function DoctorAppointmentsPage() {
         }
     };
 
+    const toggleReport = (id: string) => {
+        setExpandedReports(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -73,8 +83,8 @@ export default function DoctorAppointmentsPage() {
                             key={f}
                             onClick={() => setFilter(f)}
                             className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all uppercase tracking-widest ${filter === f
-                                    ? 'bg-white text-primary shadow-lg scale-105'
-                                    : 'text-muted-foreground hover:text-foreground'
+                                ? 'bg-white text-primary shadow-lg scale-105'
+                                : 'text-muted-foreground hover:text-foreground'
                                 }`}
                         >
                             {f}
@@ -95,7 +105,7 @@ export default function DoctorAppointmentsPage() {
                             className="p-8 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-8 hover:shadow-2xl transition-all border-border/50 bg-card/50 backdrop-blur rounded-[40px] group relative overflow-hidden"
                         >
                             <div className={`absolute left-0 top-0 bottom-0 w-2 transition-all ${appt.status === 'accepted' ? 'bg-emerald-500' :
-                                    appt.status === 'rejected' ? 'bg-destructive' : 'bg-orange-500'
+                                appt.status === 'rejected' ? 'bg-destructive' : 'bg-orange-500'
                                 }`} />
 
                             <div className="flex flex-col md:flex-row items-start md:items-center gap-6 flex-1">
@@ -109,6 +119,12 @@ export default function DoctorAppointmentsPage() {
                                         <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusStyles(appt.status)}`}>
                                             {appt.status}
                                         </span>
+                                        {appt.pre_visit_report && (
+                                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border bg-emerald-500/10 text-emerald-600 border-emerald-500/20 flex items-center gap-1">
+                                                <FileText className="w-3 h-3" />
+                                                Report Ready
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="text-lg font-bold text-muted-foreground italic">{appt.type}</p>
 
@@ -154,6 +170,23 @@ export default function DoctorAppointmentsPage() {
                                     <Button variant="outline" className="h-16 px-6 border-border/50 font-black rounded-2xl">
                                         History
                                     </Button>
+                                </div>
+                            )}
+
+                            {/* Pre-Visit Report Section */}
+                            {appt.pre_visit_report && (
+                                <div className="w-full mt-4 pt-4 border-t border-border/30">
+                                    <button
+                                        onClick={() => toggleReport(appt.id)}
+                                        className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors mb-2"
+                                    >
+                                        <FileText className="w-4 h-4" />
+                                        {expandedReports.has(appt.id) ? 'Hide' : 'View'} Pre-Visit Report
+                                        <ChevronDown className={`w-4 h-4 transition-transform ${expandedReports.has(appt.id) ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    {expandedReports.has(appt.id) && (
+                                        <PreVisitReport report={appt.pre_visit_report} compact={false} />
+                                    )}
                                 </div>
                             )}
                         </Card>

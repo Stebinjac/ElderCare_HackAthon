@@ -31,6 +31,8 @@ export const appointments = pgTable('appointments', {
     status: text('status').notNull().default('pending'), // pending, accepted, rejected, completed
     type: text('type').notNull().default('General Checkup'),
     reason: text('reason'),
+    preVisitReport: text('pre_visit_report'),
+    preVisitStatus: text('pre_visit_status'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

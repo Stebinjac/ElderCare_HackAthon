@@ -136,8 +136,12 @@ You have access to the user's live location. ALWAYS prioritize finding doctors a
 2. Automatically call `get_available_doctors` which filters for staff at those specific nearby hospitals.
 
 ## THE 2-PHASE BOOKING PROTOCOL
-1. PHASE 1 (Intake): Ask ONE clarifying question about symptoms.
-2. PHASE 2 (Booking): Call `get_available_doctors` first, then `book_appointment` with the best match.
+You must follow this exact sequence for appointments:
+1. PHASE 1 (Intake): If a patient requests an appointment, DO NOT book it yet. Ask ONE clarifying question to understand their symptoms (e.g., "Could you tell me a little bit about what symptoms you're experiencing?").
+2. PHASE 2 (Booking): Once they describe their symptoms, immediately call `get_available_doctors` to find matching doctors. 
+3. After getting the doctors list, IMMEDIATELY call `book_appointment` with the best doctor from the list. 
+   - DO NOT hallucinate doctor names. ONLY use names provided by `get_available_doctors`.
+   - DO NOT ask for confirmation of the doctor or hospital. Just pick the best fit from the list and execute `book_appointment` immediately.
 
 ## EMERGENCY & SAFETY
 - For physical emergencies (chest pain, falls, etc.), call `find_nearest_hospital` and `send_emergency_alert`.
@@ -145,10 +149,10 @@ You have access to the user's live location. ALWAYS prioritize finding doctors a
 - If the patient is in pain, provide immediate reassurance: "I am finding a hospital near you and alerting your family right now."
 
 ## OUTPUT RESTRICTIONS
-- NEVER show technical details, JSON, or tool names (like `send_emergency_alert`).
-- NEVER include tags like `</function>` or `<thought>`.
+- NEVER output raw `<function>` or `<tool>` XML tags in your text (e.g., `<function=book_appointment>`). Always use the system's native tool calling JSON format.
+- NEVER show technical details, JSON, or tool names to the user.
 - Speak ONLY in warm, natural, and supportive language.
-- If you call an emergency tool, confirm it in plain English: "I've alerted your emergency contact and found nearby hospitals for you."
+- If you call an emergency tool, confirm it in plain English.
 
 ## TONE
 - Be warm, reassuring, and extremely polite.
@@ -156,20 +160,7 @@ You have access to the user's live location. ALWAYS prioritize finding doctors a
 - Use a supportive tone, especially during emergencies.
 """
 
-# The prompt given when the LLM is explicitly BLOCKED from booking
-INTAKE_PROMPT = """You are AgentCare, a warm AI health assistant for elderly patients.
 
-The patient wants to book an appointment, but you DO NOT have enough information about their symptoms yet.
-You DO NOT have access to the booking tool right now.
-
-**Your ONLY job in this message is to ask ONE short, warm question in plain English to find out what is bothering them (their symptoms).**
-
-## OUTPUT RULES:
-- Speak ONLY in warm, natural language.
-- NEVER mention technical tool names or use tags like `</function>`.
-- Example: "I'd be happy to help you book an appointment. Could you tell me a little bit about what symptoms you're experiencing?"
-
-Do not attempt to call any tools. Just ask the question and wait for them to reply."""
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -181,36 +172,6 @@ EMERGENCY_KEYWORDS = re.compile(
 def _is_emergency(message: str) -> bool:
     return bool(EMERGENCY_KEYWORDS.search(message))
 
-def _needs_intake(message: str, history: List[Dict]) -> bool:
-    """
-    Returns True if the patient is trying to book an appointment, BUT
-    we haven't had a proper back-and-forth about symptoms yet.
-    """
-    msg_lower = message.lower()
-    is_booking_request = any(word in msg_lower for word in ["book", "appointment", "doctor", "schedule", "checkup", "check-up"])
-    
-    if not is_booking_request:
-        return False
-        
-    # If it's a booking request, check if they actually provided a symptom in this message
-    # If the message is very short (like "book an appointment"), they definitely didn't
-    if len(message.split()) <= 4:
-        return True
-        
-    # Check if the AI recently asked them a question
-    ai_msgs = [m for m in history[-4:] if m.get("role") == "assistant"]
-    if not ai_msgs:
-        return True # They just walked up and said "book appointment with Dr X"
-        
-    last_ai_msg = ai_msgs[-1]["content"] or ""
-    
-    # If the AI asked a question, and the user is replying...
-    if "?" in last_ai_msg:
-        # We assume they are answering the symptom question
-        return False
-        
-    # Otherwise, they are probably just throwing a booking request at us out of nowhere
-    return True
 
 
 # ── Orchestrator ───────────────────────────────────────────────────────────────
@@ -261,15 +222,8 @@ class AgentOrchestrator:
         history = history or []
 
         # ── Fast paths and Gates ───────────────────────────────────────────────
-        if _is_emergency(message):
-            tools = BASE_TOOLS + [BOOK_TOOL]
-            system_prompt = SYSTEM_PROMPT
-        elif _needs_intake(message, history):
-            tools = BASE_TOOLS 
-            system_prompt = INTAKE_PROMPT
-        else:
-            tools = BASE_TOOLS + [BOOK_TOOL]
-            system_prompt = SYSTEM_PROMPT
+        tools = BASE_TOOLS + [BOOK_TOOL]
+        system_prompt = SYSTEM_PROMPT
 
         # ── Build message history ──────────────────────────────────────────────
         messages = [{"role": "system", "content": system_prompt}]

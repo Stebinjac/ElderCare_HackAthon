@@ -69,7 +69,10 @@ async def get_available_doctors(supabase: Client, user_lat: Optional[float] = No
     near_matches = [d for d in filtered_doctors if d.get("is_near")]
     results = near_matches if near_matches else filtered_doctors
 
+    msg = "Showing only doctors at nearby hospitals." if near_matches else "No doctors found at nearby hospitals. Showing ALL available doctors from the database. Do NOT invent a doctor."
+
     return {
+        "message": msg,
         "doctors": results,
         "total": len(results),
         "proximity_active": bool(near_matches)
@@ -148,6 +151,7 @@ async def book_appointment(
     if insert_res.data:
         return {
             "success": True,
+            "appointment_id": insert_res.data[0]["id"],
             "doctor_name": doctor["name"],
             "doctor_speciality": doctor.get("speciality") or "General Physician",
             "hospital_name": doctor.get("hospital_name") or "Clinic",
