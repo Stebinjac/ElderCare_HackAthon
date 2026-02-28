@@ -6,6 +6,7 @@ import { Calendar, Clock, User, CheckCircle2, XCircle, Loader2, AlertCircle, Map
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import PreVisitReport from '@/components/PreVisitReport';
+import { cn } from '@/lib/utils';
 
 export default function DoctorAppointmentsPage() {
     const [appointments, setAppointments] = useState<any[]>([]);
@@ -70,22 +71,29 @@ export default function DoctorAppointmentsPage() {
     };
 
     return (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h2 className="text-4xl font-black text-foreground tracking-tighter">Appointments</h2>
-                    <p className="text-muted-foreground font-medium italic">Manage your patient consultations and schedule</p>
+        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="flex flex-col xl:flex-row justify-between items-start xl:items-end gap-6 mb-10">
+                <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                        <div className="w-1.5 h-10 bg-primary rounded-full" />
+                        <h2 className="text-4xl md:text-5xl font-black text-foreground tracking-tighter uppercase">Appointments</h2>
+                    </div>
+                    <p className="text-lg md:text-xl text-muted-foreground font-medium italic pl-4 opacity-70">
+                        Managing <span className="text-primary font-bold not-italic">{appointments.length}</span> patient consultations in your queue
+                    </p>
                 </div>
 
-                <div className="flex bg-secondary/20 p-1.5 rounded-2xl border border-border/50 backdrop-blur-md">
+                <div className="flex bg-card/40 backdrop-blur-xl p-1.5 rounded-[24px] border border-border/50 shadow-sm self-stretch md:self-start xl:self-auto">
                     {(['all', 'pending', 'accepted'] as const).map((f) => (
                         <button
                             key={f}
                             onClick={() => setFilter(f)}
-                            className={`px-6 py-2.5 rounded-xl font-bold text-sm transition-all uppercase tracking-widest ${filter === f
-                                ? 'bg-white text-primary shadow-lg scale-105'
-                                : 'text-muted-foreground hover:text-foreground'
-                                }`}
+                            className={cn(
+                                "flex-1 md:flex-none px-8 py-3 rounded-[18px] font-black text-xs transition-all uppercase tracking-[0.2em]",
+                                filter === f
+                                    ? "bg-primary text-primary-foreground shadow-xl scale-105"
+                                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/30"
+                            )}
                         >
                             {f}
                         </button>
@@ -102,103 +110,137 @@ export default function DoctorAppointmentsPage() {
                     filteredAppointments.map((appt) => (
                         <Card
                             key={appt.id}
-                            className="p-8 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-8 hover:shadow-2xl transition-all border-border/50 bg-card/50 backdrop-blur rounded-[40px] group relative overflow-hidden"
+                            className="p-6 md:p-8 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-8 hover:shadow-2xl transition-all duration-300 border-border/50 bg-card/50 backdrop-blur-xl rounded-[40px] group relative overflow-hidden"
                         >
-                            <div className={`absolute left-0 top-0 bottom-0 w-2 transition-all ${appt.status === 'accepted' ? 'bg-emerald-500' :
-                                appt.status === 'rejected' ? 'bg-destructive' : 'bg-orange-500'
+                            {/* Status Indicator Sidebar */}
+                            <div className={`absolute left-0 top-0 bottom-0 w-2.5 transition-all duration-500 ${appt.status === 'accepted' ? 'bg-linear-to-b from-emerald-400 to-emerald-600' :
+                                appt.status === 'rejected' ? 'bg-linear-to-b from-destructive to-red-600' : 'bg-linear-to-b from-orange-400 to-orange-600'
                                 }`} />
 
                             <div className="flex flex-col md:flex-row items-start md:items-center gap-6 flex-1">
-                                <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center text-primary font-black text-2xl group-hover:scale-110 transition-transform border border-primary/20">
-                                    {appt.patientName.split(' ').map((n: string) => n[0]).join('')}
+                                {/* Patient Avatar Wrapper */}
+                                <div className="relative">
+                                    <div className="w-20 h-20 rounded-[28px] bg-linear-to-br from-primary/20 via-primary/10 to-accent/20 flex items-center justify-center text-primary font-black text-2xl group-hover:scale-105 transition-transform duration-500 border border-primary/20 shadow-inner">
+                                        {appt.patientName.split(' ').map((n: string) => n[0]).join('').toUpperCase()}
+                                    </div>
+                                    <div className={cn(
+                                        "absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-4 border-card flex items-center justify-center shadow-lg",
+                                        appt.status === 'accepted' ? 'bg-emerald-500' : appt.status === 'rejected' ? 'bg-red-500' : 'bg-orange-500'
+                                    )}>
+                                        {appt.status === 'accepted' ? <CheckCircle2 className="w-3 h-3 text-white" /> : appt.status === 'rejected' ? <XCircle className="w-3 h-3 text-white" /> : <Clock className="w-3 h-3 text-white" />}
+                                    </div>
                                 </div>
 
-                                <div className="space-y-2 flex-1">
+                                <div className="space-y-3 flex-1">
                                     <div className="flex flex-wrap items-center gap-3">
-                                        <h3 className="text-2xl font-black text-foreground tracking-tight">{appt.patientName}</h3>
-                                        <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${getStatusStyles(appt.status)}`}>
+                                        <h3 className="text-2xl font-black text-foreground tracking-tight group-hover:text-primary transition-colors">{appt.patientName}</h3>
+                                        <div className={cn(
+                                            "px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.15em] border transition-all shadow-sm",
+                                            getStatusStyles(appt.status)
+                                        )}>
                                             {appt.status}
-                                        </span>
+                                        </div>
                                         {appt.pre_visit_report && (
-                                            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border bg-emerald-500/10 text-emerald-600 border-emerald-500/20 flex items-center gap-1">
-                                                <FileText className="w-3 h-3" />
+                                            <div className="px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border bg-emerald-500/10 text-emerald-600 border-emerald-500/20 flex items-center gap-1.5 animate-pulse shadow-sm">
+                                                <FileText className="w-3.5 h-3.5" />
                                                 Report Ready
-                                            </span>
+                                            </div>
                                         )}
                                     </div>
-                                    <p className="text-lg font-bold text-muted-foreground italic">{appt.type}</p>
 
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                                        <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-border/50">
-                                            <Calendar className="w-5 h-5 text-primary" />
-                                            <span className="font-bold">{new Date(appt.date).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</span>
+                                    <div className="flex items-center gap-2">
+                                        <p className="px-3 py-1 bg-secondary/50 rounded-lg text-sm font-bold text-muted-foreground italic border border-border/30">
+                                            {appt.type}
+                                        </p>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-4 pt-4">
+                                        <div className="flex items-center gap-3 bg-white/60 dark:bg-white/5 px-4 py-3 rounded-2xl border border-border/40 shadow-sm group/date hover:border-primary/30 transition-colors">
+                                            <div className="p-2 bg-primary/10 rounded-xl group-hover/date:bg-primary/20 transition-colors">
+                                                <Calendar className="w-5 h-5 text-primary" />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-tighter">Date</span>
+                                                <span className="font-bold text-sm tracking-tight">{new Date(appt.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-border/50">
-                                            <Clock className="w-5 h-5 text-primary" />
-                                            <span className="font-bold">{appt.time}</span>
+                                        <div className="flex items-center gap-3 bg-white/60 dark:bg-white/5 px-4 py-3 rounded-2xl border border-border/40 shadow-sm group/time hover:border-primary/30 transition-colors">
+                                            <div className="p-2 bg-primary/10 rounded-xl group-hover/time:bg-primary/20 transition-colors">
+                                                <Clock className="w-5 h-5 text-primary" />
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="text-[10px] uppercase font-black text-muted-foreground tracking-tighter">Time</span>
+                                                <span className="font-bold text-sm tracking-tight">{appt.time}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            {appt.status === 'pending' ? (
-                                <div className="flex gap-3 min-w-[280px]">
-                                    <Button
-                                        onClick={() => handleStatusUpdate(appt.id, 'accepted')}
-                                        className="flex-1 h-16 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <CheckCircle2 className="w-5 h-5" />
-                                        Accept
-                                    </Button>
-                                    <Button
-                                        onClick={() => handleStatusUpdate(appt.id, 'rejected')}
-                                        variant="outline"
-                                        className="flex-1 h-16 border-destructive/30 text-destructive hover:bg-destructive/5 font-black rounded-2xl transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <XCircle className="w-5 h-5" />
-                                        Decline
-                                    </Button>
-                                </div>
-                            ) : (
-                                <div className="flex gap-3 min-w-[280px]">
-                                    <Link href={`/doctor/patients/${appt.patient_id}`} className="flex-1">
-                                        <Button className="w-full h-16 bg-primary text-white font-black rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2">
-                                            View Profile
-                                            <ChevronRight className="w-5 h-5" />
-                                        </Button>
-                                    </Link>
-                                    <Button variant="outline" className="h-16 px-6 border-border/50 font-black rounded-2xl">
-                                        History
-                                    </Button>
-                                </div>
-                            )}
+                            <div className="flex flex-col md:flex-row lg:flex-col xl:flex-row gap-3 min-w-[280px]">
+                                {appt.status === 'pending' ? (
+                                    <>
+                                        <button
+                                            onClick={() => handleStatusUpdate(appt.id, 'accepted')}
+                                            className="flex-1 h-14 bg-linear-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white font-black rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-95 transition-all flex items-center justify-center gap-2.5 px-6"
+                                        >
+                                            <CheckCircle2 className="w-5 h-5" />
+                                            <span>ACCEPT</span>
+                                        </button>
+                                        <button
+                                            onClick={() => handleStatusUpdate(appt.id, 'rejected')}
+                                            className="flex-1 h-14 border-2 border-destructive/20 text-destructive hover:bg-destructive shadow-sm hover:text-white font-black rounded-2xl active:scale-95 transition-all flex items-center justify-center gap-2.5 px-6"
+                                        >
+                                            <XCircle className="w-5 h-5" />
+                                            <span>DECLINE</span>
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Link href={`/doctor/patients/${appt.patient_id}`} className="flex-1">
+                                            <button className="w-full h-14 bg-linear-to-r from-primary to-accent hover:shadow-xl text-white font-black rounded-2xl shadow-lg shadow-primary/10 active:scale-95 transition-all flex items-center justify-center gap-2.5 px-6">
+                                                <span>VIEW PROFILE</span>
+                                                <ChevronRight className="w-5 h-5" />
+                                            </button>
+                                        </Link>
+                                        <button className="h-14 px-6 border border-border/50 bg-secondary/20 hover:bg-secondary/40 font-black rounded-2xl active:scale-95 transition-all uppercase tracking-widest text-xs">
+                                            HISTORY
+                                        </button>
+                                    </>
+                                )}
+                            </div>
 
                             {/* Pre-Visit Report Section */}
                             {appt.pre_visit_report && (
-                                <div className="w-full mt-4 pt-4 border-t border-border/30">
+                                <div className="w-full mt-6 pt-6 border-t border-border/20">
                                     <button
                                         onClick={() => toggleReport(appt.id)}
-                                        className="flex items-center gap-2 text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors mb-2"
+                                        className="flex items-center gap-3 px-5 py-2.5 bg-emerald-500/5 hover:bg-emerald-500/10 rounded-2xl text-sm font-black text-emerald-600 transition-all border border-emerald-500/10 group/view"
                                     >
-                                        <FileText className="w-4 h-4" />
-                                        {expandedReports.has(appt.id) ? 'Hide' : 'View'} Pre-Visit Report
-                                        <ChevronDown className={`w-4 h-4 transition-transform ${expandedReports.has(appt.id) ? 'rotate-180' : ''}`} />
+                                        <div className="p-1.5 bg-emerald-500/10 rounded-lg group-hover/view:scale-110 transition-transform">
+                                            <FileText className="w-4 h-4" />
+                                        </div>
+                                        <span className="uppercase tracking-widest">{expandedReports.has(appt.id) ? 'Hide' : 'View'} Pre-Visit Briefing</span>
+                                        <ChevronDown className={cn("w-4 h-4 transition-transform duration-500", expandedReports.has(appt.id) ? 'rotate-180' : '')} />
                                     </button>
                                     {expandedReports.has(appt.id) && (
-                                        <PreVisitReport report={appt.pre_visit_report} compact={false} />
+                                        <div className="mt-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                                            <PreVisitReport report={appt.pre_visit_report} compact={false} />
+                                        </div>
                                     )}
                                 </div>
                             )}
                         </Card>
                     ))
                 ) : (
-                    <Card className="p-24 text-center border-dashed border-4 border-secondary/50 bg-secondary/5 rounded-[60px] flex flex-col items-center">
-                        <div className="w-24 h-24 rounded-full bg-secondary/20 flex items-center justify-center mb-8">
-                            <Calendar className="w-12 h-12 text-muted-foreground" />
+                    <Card className="p-20 text-center border-dashed border-2 border-border/50 bg-card/30 backdrop-blur rounded-[60px] flex flex-col items-center group overflow-hidden relative">
+                        <div className="absolute inset-0 bg-linear-to-b from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+                        <div className="w-28 h-28 rounded-[38px] bg-linear-to-br from-secondary/50 via-secondary/20 to-transparent flex items-center justify-center mb-8 shadow-xl group-hover:rotate-12 transition-transform duration-700">
+                            <Calendar className="w-14 h-14 text-muted-foreground/50" />
                         </div>
-                        <h3 className="text-3xl font-black text-foreground mb-3">No Appointments Found</h3>
-                        <p className="text-muted-foreground text-xl font-medium max-w-sm italic">
-                            Your schedule is currently clear. New requests will appear here once patients book them.
+                        <h3 className="text-3xl font-black text-foreground mb-3 tracking-tight">Schedule is Clear</h3>
+                        <p className="text-muted-foreground text-xl font-medium max-w-sm italic opacity-80">
+                            No upcoming consultations. New requests will appear here once booked.
                         </p>
                     </Card>
                 )}
