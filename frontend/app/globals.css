@@ -71,6 +71,52 @@
   --sidebar-ring: oklch(0.65 0.15 180);
 }
 
+.high-contrast {
+  --background: oklch(0.05 0 0) !important;
+  --foreground: oklch(0.98 0 0) !important;
+  --card: oklch(0.1 0 0) !important;
+  --card-foreground: oklch(0.98 0 0) !important;
+  --popover: oklch(0.1 0 0) !important;
+  --popover-foreground: oklch(0.98 0 0) !important;
+  --primary: oklch(0.8 0.2 180) !important;
+  --primary-foreground: oklch(0.05 0 0) !important;
+  --secondary: oklch(0.2 0 0) !important;
+  --secondary-foreground: oklch(0.98 0 0) !important;
+  --muted: oklch(0.2 0 0) !important;
+  --muted-foreground: oklch(0.9 0 0) !important;
+  --accent: oklch(0.8 0.2 160) !important;
+  --accent-foreground: oklch(0.05 0 0) !important;
+  --destructive: oklch(0.6 0.25 25) !important;
+  --destructive-foreground: oklch(0.98 0 0) !important;
+  --border: oklch(0.8 0 0) !important;
+  --input: oklch(0.8 0 0) !important;
+  --ring: oklch(0.98 0 0) !important;
+  --sidebar: oklch(0.05 0 0) !important;
+  --sidebar-foreground: oklch(0.98 0 0) !important;
+  --sidebar-primary: oklch(0.8 0.2 180) !important;
+  --sidebar-primary-foreground: oklch(0.05 0 0) !important;
+  --sidebar-accent: oklch(0.2 0 0) !important;
+  --sidebar-accent-foreground: oklch(0.98 0 0) !important;
+  --sidebar-border: oklch(0.8 0 0) !important;
+  --sidebar-ring: oklch(0.98 0 0) !important;
+}
+
+/* Hide Google Translate Banner and Iframe */
+iframe.skiptranslate,
+.goog-te-banner-frame.skiptranslate {
+  display: none !important;
+}
+
+body {
+  top: 0px !important;
+  position: relative !important;
+}
+
+.goog-text-highlight {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
 @theme inline {
   --font-sans: 'Geist', 'Geist Fallback';
   --font-mono: 'Geist Mono', 'Geist Mono Fallback';
